@@ -4,6 +4,7 @@ import os
 import uuid
 from csv import writer
 from datetime import datetime, timezone
+from html import escape
 from io import StringIO
 
 import azure.functions as func
@@ -82,6 +83,43 @@ def entries_csv(req: func.HttpRequest) -> func.HttpResponse:
         status_code=200,
         mimetype="text/csv",
     )
+
+
+@app.route(route="entries.html", methods=["GET"])
+def entries_html(req: func.HttpRequest) -> func.HttpResponse:
+    try:
+        entities = list(get_storage_table().query_entities("PartitionKey eq 'entry'"))
+    except Exception as error:
+        logging.exception("Could not read storage rows")
+        return json_response({"error": "Could not read entries.", "detail": str(error)}, 500)
+
+    entities.sort(key=lambda row: row.get("CreatedAt", ""))
+    headers = ["Created At", "Position ID", "Payroll Name", "Batch ID", "Tablet ID"]
+    rows = [
+        [
+            row.get("CreatedAt", ""),
+            row.get("PositionId", ""),
+            row.get("PayrollName", ""),
+            row.get("BatchId", ""),
+            row.get("TabletId", ""),
+        ]
+        for row in entities
+    ]
+    header_html = "".join(f"<th>{escape(header)}</th>" for header in headers)
+    rows_html = "".join(
+        "<tr>" + "".join(f"<td>{escape(str(value))}</td>" for value in row) + "</tr>"
+        for row in rows
+    )
+    html = (
+        "<!doctype html><html><head><meta charset=\"utf-8\">"
+        "<title>Scanner Work Tracker</title></head><body>"
+        "<table><thead><tr>"
+        f"{header_html}"
+        "</tr></thead><tbody>"
+        f"{rows_html}"
+        "</tbody></table></body></html>"
+    )
+    return func.HttpResponse(html, status_code=200, mimetype="text/html")
 
 
 def graph_configured():
