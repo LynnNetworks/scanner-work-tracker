@@ -132,6 +132,26 @@ def entries_html(req: func.HttpRequest) -> func.HttpResponse:
     return func.HttpResponse(html, status_code=200, mimetype="text/html")
 
 
+@app.route(route="cleanup-test-entries", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def cleanup_test_entries(req: func.HttpRequest) -> func.HttpResponse:
+    if not read_token_valid(req):
+        return json_response({"error": "Unauthorized."}, 401)
+
+    try:
+        table = get_storage_table()
+        entities = table.query_entities("PartitionKey eq 'entry'")
+        deleted = 0
+        for row in entities:
+            if row.get("BatchId") == "TEST123" and row.get("TabletId") == "Codex-Test":
+                table.delete_entity(row["PartitionKey"], row["RowKey"])
+                deleted += 1
+    except Exception as error:
+        logging.exception("Could not delete test rows")
+        return json_response({"error": "Could not delete test rows.", "detail": str(error)}, 500)
+
+    return json_response({"ok": True, "deleted": deleted}, 200)
+
+
 def graph_configured():
     return all(
         os.environ.get(name)
