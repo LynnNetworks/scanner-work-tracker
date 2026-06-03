@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.buildozer/
+bin/
+*.tmp.xlsx
+~$*.xlsx
+work_tracker.xlsx
