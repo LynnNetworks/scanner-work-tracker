@@ -41,6 +41,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install buildozer cython
 
+      - name: Configure cloud endpoint
+        run: |
+          printf 'CLOUD_ENDPOINT_URL = "%s"\nCLOUD_FUNCTION_KEY = "%s"\nTABLET_ID = "%s"\n' \
+            '${{ secrets.CLOUD_ENDPOINT_URL }}' \
+            '${{ secrets.CLOUD_FUNCTION_KEY }}' \
+            '${{ secrets.TABLET_ID }}' > app_config.py
+
       - name: Build debug APK
         run: |
           yes | buildozer android debug
