@@ -1,0 +1,13 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AZURE_TENANT_ID": "",
+    "AZURE_CLIENT_ID": "",
+    "AZURE_CLIENT_SECRET": "",
+    "EXCEL_DRIVE_ID": "",
+    "EXCEL_ITEM_ID": "",
+    "EXCEL_TABLE_NAME": "WorkTracker"
+  }
+}

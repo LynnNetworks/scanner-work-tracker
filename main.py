@@ -6,6 +6,8 @@ from kivy.properties import BooleanProperty, StringProperty
 from kivy.utils import platform
 from kivy.uix.boxlayout import BoxLayout
 
+from app_config import CLOUD_ENDPOINT_URL, CLOUD_FUNCTION_KEY, TABLET_ID
+from cloud_client import CloudClient
 from excel_store import WorkTrackerExcelStore
 
 
@@ -82,6 +84,7 @@ class TrackerRoot(BoxLayout):
             app.workbook_path,
             Path(__file__).with_name("operators.csv"),
         )
+        self.cloud = CloudClient(CLOUD_ENDPOINT_URL, CLOUD_FUNCTION_KEY, TABLET_ID)
         self.refresh_recent_entries()
 
     def save_entry(self):
@@ -103,11 +106,15 @@ class TrackerRoot(BoxLayout):
             return
 
         try:
-            self.store.add_entry(operator_id, batch_id)
+            if self.cloud.enabled:
+                self.cloud.save_entry(operator, batch_id)
+                self.store.add_entry(operator_id, batch_id)
+            else:
+                self.store.add_entry(operator_id, batch_id)
         except PermissionError:
             self.set_status("Close work_tracker.xlsx, then save again.", False)
             return
-        except OSError as error:
+        except (OSError, RuntimeError) as error:
             self.set_status(f"Could not save entry: {error}", False)
             return
 

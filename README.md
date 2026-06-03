@@ -64,3 +64,47 @@ The generated `work_tracker.xlsx` has these columns:
 - Add a button to export/share the Excel workbook from Android.
 - Add batch lookup validation.
 - Sync entries to a shared network location or cloud folder.
+
+## Live Excel Through Azure
+
+The app can save to a live Excel workbook through the Azure Function in `api/`.
+
+High-level flow:
+
+```text
+Tablet app -> Azure Function -> Microsoft Graph -> Excel table in OneDrive/SharePoint
+```
+
+### Azure Setup Checklist
+
+1. Create `work_tracker.xlsx` in OneDrive for Business or SharePoint.
+2. Create an Excel table named `WorkTracker`.
+3. Give the table these columns:
+   - Created At
+   - Position ID
+   - Payroll Name
+   - Batch ID
+   - Tablet ID
+4. Create an Entra ID app registration for Microsoft Graph access.
+5. Create a client secret for that app registration.
+6. Grant the app permission to write to the workbook.
+7. Create an Azure Function App using Python 3.11.
+8. Add these Function App settings:
+   - `AZURE_TENANT_ID`
+   - `AZURE_CLIENT_ID`
+   - `AZURE_CLIENT_SECRET`
+   - `EXCEL_DRIVE_ID`
+   - `EXCEL_ITEM_ID`
+   - `EXCEL_TABLE_NAME`
+9. Deploy `api/` to the Function App.
+10. Put the Function endpoint URL and key into `app_config.py`.
+
+`app_config.py`:
+
+```python
+CLOUD_ENDPOINT_URL = "https://<function-app>.azurewebsites.net/api/save-entry"
+CLOUD_FUNCTION_KEY = "<function-key>"
+TABLET_ID = "Tablet-01"
+```
+
+When `CLOUD_ENDPOINT_URL` is blank, the app uses local Excel only.

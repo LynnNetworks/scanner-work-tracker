@@ -6,6 +6,7 @@ source.dir = .
 source.include_exts = py,kv,xlsx,csv
 version = 0.1
 requirements = python3,kivy
+android.permissions = INTERNET
 orientation = portrait
 fullscreen = 0
 

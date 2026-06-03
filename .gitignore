@@ -5,3 +5,4 @@ bin/
 *.tmp.xlsx
 ~$*.xlsx
 work_tracker.xlsx
+api/local.settings.json
