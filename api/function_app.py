@@ -17,6 +17,10 @@ app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
 TABLE_NAME = os.environ.get("EXCEL_TABLE_NAME", "WorkTracker")
 STORAGE_TABLE_NAME = os.environ.get("STORAGE_TABLE_NAME", "WorkTracker")
+READ_ACCESS_TOKEN = os.environ.get(
+    "READ_ACCESS_TOKEN",
+    "d4de2f6c8f2d4e3f9ac9c2e9b46f3a22",
+)
 
 
 @app.route(route="save-entry", methods=["POST"])
@@ -55,8 +59,11 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
     return json_response({"ok": True, "created_at": created_at}, 200)
 
 
-@app.route(route="entries.csv", methods=["GET"])
+@app.route(route="entries.csv", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 def entries_csv(req: func.HttpRequest) -> func.HttpResponse:
+    if not read_token_valid(req):
+        return json_response({"error": "Unauthorized."}, 401)
+
     try:
         entities = list(get_storage_table().query_entities("PartitionKey eq 'entry'"))
     except Exception as error:
@@ -85,8 +92,11 @@ def entries_csv(req: func.HttpRequest) -> func.HttpResponse:
     )
 
 
-@app.route(route="entries.html", methods=["GET"])
+@app.route(route="entries.html", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 def entries_html(req: func.HttpRequest) -> func.HttpResponse:
+    if not read_token_valid(req):
+        return json_response({"error": "Unauthorized."}, 401)
+
     try:
         entities = list(get_storage_table().query_entities("PartitionKey eq 'entry'"))
     except Exception as error:
@@ -154,6 +164,10 @@ def get_storage_table():
     connection_string = required_setting("AzureWebJobsStorage")
     service = TableServiceClient.from_connection_string(connection_string)
     return service.create_table_if_not_exists(STORAGE_TABLE_NAME)
+
+
+def read_token_valid(req: func.HttpRequest):
+    return req.params.get("token") == READ_ACCESS_TOKEN
 
 
 def append_excel_row(values):
