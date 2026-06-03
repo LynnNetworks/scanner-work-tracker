@@ -1,16 +1,21 @@
 import json
 import logging
 import os
+import uuid
+from csv import writer
 from datetime import datetime, timezone
+from io import StringIO
 
 import azure.functions as func
 import requests
+from azure.data.tables import TableServiceClient
 
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
 GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
 TABLE_NAME = os.environ.get("EXCEL_TABLE_NAME", "WorkTracker")
+STORAGE_TABLE_NAME = os.environ.get("STORAGE_TABLE_NAME", "WorkTracker")
 
 
 @app.route(route="save-entry", methods=["POST"])
@@ -34,7 +39,10 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
     values = [[created_at, position_id, payroll_name, batch_id, tablet_id]]
 
     try:
-        append_excel_row(values)
+        if graph_configured():
+            append_excel_row(values)
+        else:
+            append_storage_row(created_at, position_id, payroll_name, batch_id, tablet_id)
     except requests.HTTPError as error:
         logging.exception("Microsoft Graph request failed")
         response_text = error.response.text if error.response is not None else str(error)
@@ -44,6 +52,70 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
         return json_response({"error": "Save failed.", "detail": str(error)}, 500)
 
     return json_response({"ok": True, "created_at": created_at}, 200)
+
+
+@app.route(route="entries.csv", methods=["GET"])
+def entries_csv(req: func.HttpRequest) -> func.HttpResponse:
+    try:
+        entities = list(get_storage_table().query_entities("PartitionKey eq 'entry'"))
+    except Exception as error:
+        logging.exception("Could not read storage rows")
+        return json_response({"error": "Could not read entries.", "detail": str(error)}, 500)
+
+    entities.sort(key=lambda row: row.get("CreatedAt", ""))
+    buffer = StringIO()
+    csv_writer = writer(buffer)
+    csv_writer.writerow(["Created At", "Position ID", "Payroll Name", "Batch ID", "Tablet ID"])
+    for row in entities:
+        csv_writer.writerow(
+            [
+                row.get("CreatedAt", ""),
+                row.get("PositionId", ""),
+                row.get("PayrollName", ""),
+                row.get("BatchId", ""),
+                row.get("TabletId", ""),
+            ]
+        )
+
+    return func.HttpResponse(
+        buffer.getvalue(),
+        status_code=200,
+        mimetype="text/csv",
+    )
+
+
+def graph_configured():
+    return all(
+        os.environ.get(name)
+        for name in [
+            "AZURE_TENANT_ID",
+            "AZURE_CLIENT_ID",
+            "AZURE_CLIENT_SECRET",
+            "EXCEL_DRIVE_ID",
+            "EXCEL_ITEM_ID",
+        ]
+    )
+
+
+def append_storage_row(created_at, position_id, payroll_name, batch_id, tablet_id):
+    table = get_storage_table()
+    table.create_entity(
+        {
+            "PartitionKey": "entry",
+            "RowKey": f"{created_at}-{uuid.uuid4()}",
+            "CreatedAt": created_at,
+            "PositionId": position_id,
+            "PayrollName": payroll_name,
+            "BatchId": batch_id,
+            "TabletId": tablet_id,
+        }
+    )
+
+
+def get_storage_table():
+    connection_string = required_setting("AzureWebJobsStorage")
+    service = TableServiceClient.from_connection_string(connection_string)
+    return service.create_table_if_not_exists(STORAGE_TABLE_NAME)
 
 
 def append_excel_row(values):

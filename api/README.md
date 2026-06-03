@@ -1,6 +1,7 @@
 # Scanner Work Tracker API
 
 Azure Function endpoint for appending scan entries to a live Excel table through Microsoft Graph.
+When Microsoft Graph settings are not configured, entries are stored in Azure Table Storage and exposed as a CSV feed for Excel.
 
 ## Endpoint
 
@@ -16,6 +17,13 @@ Azure Function endpoint for appending scan entries to a live Excel table through
 ```
 
 ## Required App Settings
+
+### Azure Table Storage Mode
+
+- `AzureWebJobsStorage`
+- `STORAGE_TABLE_NAME`
+
+### Microsoft Graph Excel Mode
 
 - `AZURE_TENANT_ID`
 - `AZURE_CLIENT_ID`

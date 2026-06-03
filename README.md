@@ -108,3 +108,13 @@ TABLET_ID = "Tablet-01"
 ```
 
 When `CLOUD_ENDPOINT_URL` is blank, the app uses local Excel only.
+
+### No-App-Registration Fallback
+
+If App registrations are blocked by the Microsoft tenant, the Azure Function stores entries in Azure Table Storage and exposes a CSV endpoint:
+
+```text
+https://<function-app>.azurewebsites.net/api/entries.csv
+```
+
+Excel can connect to that URL with **Data > From Web** and refresh the table when needed.
