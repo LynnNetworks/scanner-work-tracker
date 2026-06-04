@@ -11,10 +11,16 @@ NS_PACKAGE_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 
 def main():
     base_dir = Path(__file__).resolve().parent
-    workbook_path = base_dir / "operator_areas.xlsx"
+    combined_workbook_path = base_dir.parent / "Scanner_Work_Tracker.xlsx"
+    legacy_workbook_path = base_dir / "operator_areas.xlsx"
+    workbook_path = (
+        combined_workbook_path
+        if combined_workbook_path.exists()
+        else legacy_workbook_path
+    )
     csv_path = base_dir / "operator_areas.csv"
 
-    rows = read_sheet_rows(workbook_path, "Assignments")
+    rows = read_sheet_rows(workbook_path, ["Area Assignments", "Assignments"])
     if not rows:
         raise RuntimeError("Assignments sheet is empty.")
 
@@ -32,7 +38,7 @@ def main():
                 writer.writerow([row[0].strip(), row[1].strip(), row[2].strip()])
 
 
-def read_sheet_rows(workbook_path, sheet_name):
+def read_sheet_rows(workbook_path, sheet_names):
     with ZipFile(workbook_path) as workbook_zip:
         shared_strings = read_shared_strings(workbook_zip)
         workbook_root = ET.fromstring(workbook_zip.read("xl/workbook.xml"))
@@ -44,13 +50,13 @@ def read_sheet_rows(workbook_path, sheet_name):
         }
         sheet_path = None
         for sheet in workbook_root.findall(f".//{{{NS_MAIN}}}sheet"):
-            if sheet.attrib.get("name") == sheet_name:
+            if sheet.attrib.get("name") in sheet_names:
                 rel_id = sheet.attrib[f"{{{NS_REL}}}id"]
                 target = rel_targets[rel_id]
                 sheet_path = f"xl/{target}" if not target.startswith("/") else target.lstrip("/")
                 break
         if not sheet_path:
-            raise RuntimeError(f"Sheet not found: {sheet_name}")
+            raise RuntimeError(f"Sheet not found: {', '.join(sheet_names)}")
 
         sheet_root = ET.fromstring(workbook_zip.read(sheet_path))
 
