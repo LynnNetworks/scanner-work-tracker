@@ -32,6 +32,7 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
 
     position_id = str(payload.get("position_id", "")).strip()
     payroll_name = str(payload.get("payroll_name", "")).strip()
+    area = str(payload.get("area", "Unassigned")).strip() or "Unassigned"
     batch_id = str(payload.get("batch_id", "")).strip()
     tablet_id = str(payload.get("tablet_id", "")).strip()
 
@@ -41,13 +42,13 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
         return json_response({"error": "batch_id is required."}, 400)
 
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    values = [[created_at, position_id, payroll_name, batch_id, tablet_id]]
+    values = [[created_at, position_id, payroll_name, area, batch_id, tablet_id]]
 
     try:
         if graph_configured():
             append_excel_row(values)
         else:
-            append_storage_row(created_at, position_id, payroll_name, batch_id, tablet_id)
+            append_storage_row(created_at, position_id, payroll_name, area, batch_id, tablet_id)
     except requests.HTTPError as error:
         logging.exception("Microsoft Graph request failed")
         response_text = error.response.text if error.response is not None else str(error)
@@ -73,13 +74,14 @@ def entries_csv(req: func.HttpRequest) -> func.HttpResponse:
     entities.sort(key=lambda row: row.get("CreatedAt", ""))
     buffer = StringIO()
     csv_writer = writer(buffer)
-    csv_writer.writerow(["Created At", "Position ID", "Payroll Name", "Batch ID", "Tablet ID"])
+    csv_writer.writerow(["Created At", "Position ID", "Payroll Name", "Area", "Batch ID", "Tablet ID"])
     for row in entities:
         csv_writer.writerow(
             [
                 row.get("CreatedAt", ""),
                 row.get("PositionId", ""),
                 row.get("PayrollName", ""),
+                row.get("Area", "Unassigned"),
                 row.get("BatchId", ""),
                 row.get("TabletId", ""),
             ]
@@ -104,12 +106,13 @@ def entries_html(req: func.HttpRequest) -> func.HttpResponse:
         return json_response({"error": "Could not read entries.", "detail": str(error)}, 500)
 
     entities.sort(key=lambda row: row.get("CreatedAt", ""))
-    headers = ["Created At", "Position ID", "Payroll Name", "Batch ID", "Tablet ID"]
+    headers = ["Created At", "Position ID", "Payroll Name", "Area", "Batch ID", "Tablet ID"]
     rows = [
         [
             row.get("CreatedAt", ""),
             row.get("PositionId", ""),
             row.get("PayrollName", ""),
+            row.get("Area", "Unassigned"),
             row.get("BatchId", ""),
             row.get("TabletId", ""),
         ]
@@ -165,7 +168,7 @@ def graph_configured():
     )
 
 
-def append_storage_row(created_at, position_id, payroll_name, batch_id, tablet_id):
+def append_storage_row(created_at, position_id, payroll_name, area, batch_id, tablet_id):
     table = get_storage_table()
     table.create_entity(
         {
@@ -174,6 +177,7 @@ def append_storage_row(created_at, position_id, payroll_name, batch_id, tablet_i
             "CreatedAt": created_at,
             "PositionId": position_id,
             "PayrollName": payroll_name,
+            "Area": area,
             "BatchId": batch_id,
             "TabletId": tablet_id,
         }

@@ -83,6 +83,7 @@ class TrackerRoot(BoxLayout):
         self.store = WorkTrackerExcelStore(
             app.workbook_path,
             Path(__file__).with_name("operators.csv"),
+            Path(__file__).with_name("operator_areas.csv"),
         )
         self.cloud = CloudClient(CLOUD_ENDPOINT_URL, CLOUD_FUNCTION_KEY, TABLET_ID)
         self.refresh_recent_entries()
@@ -121,7 +122,10 @@ class TrackerRoot(BoxLayout):
         self.ids.operator_id.text = ""
         self.ids.batch_id.text = ""
         self.ids.operator_id.focus = True
-        self.set_status(f"Entry saved for {operator['payroll_name']}.", True)
+        self.set_status(
+            f"Entry saved for {operator['payroll_name']} - {operator['area']}.",
+            True,
+        )
         self.refresh_recent_entries()
 
     def set_status(self, message, ok):
@@ -133,12 +137,12 @@ class TrackerRoot(BoxLayout):
             {
                 "text": (
                     f"{created_at} | {payroll_name or 'Unknown'} "
-                    f"({operator_id}) | Batch {batch_id}"
+                    f"({operator_id}) | {area} | Batch {batch_id}"
                 ),
                 "halign": "left",
                 "valign": "middle",
             }
-            for operator_id, payroll_name, batch_id, created_at in self.store.recent_entries()
+            for operator_id, payroll_name, area, batch_id, created_at in self.store.recent_entries()
         ]
 
 

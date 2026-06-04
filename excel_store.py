@@ -9,10 +9,34 @@ HEADERS = [
     "Created At",
     "Position ID",
     "Payroll Name",
+    "Area",
     "Batch ID",
     "Benefits Class",
     "Reports To Name",
     "Position Status",
+]
+
+PRODUCTION_AREAS = [
+    "prep(reg)",
+    "prep(mtp)",
+    "prep(288)",
+    "prep(flat)",
+    "term(reg)",
+    "term(mtp)",
+    "term(288)",
+    "term(flat)",
+    "polish(reg)",
+    "polish(mtp)",
+    "polish(288)",
+    "polish(flat)",
+    "scope(reg)",
+    "scope(mtp)",
+    "scope(288)",
+    "scope(flat)",
+    "test(reg)",
+    "test(mtp)",
+    "test(288)",
+    "test(flat)",
 ]
 
 NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -22,10 +46,11 @@ NS_CONTENT = "http://schemas.openxmlformats.org/package/2006/content-types"
 
 
 class WorkTrackerExcelStore:
-    def __init__(self, workbook_path, roster_csv_path):
+    def __init__(self, workbook_path, roster_csv_path, operator_areas_csv_path=None):
         self.workbook_path = Path(workbook_path)
         self.workbook_path.parent.mkdir(parents=True, exist_ok=True)
         self.operators = self._load_operators(roster_csv_path)
+        self.operator_areas = self._load_operator_areas(operator_areas_csv_path)
         if not self.workbook_path.exists():
             self._write_rows([])
 
@@ -34,7 +59,7 @@ class WorkTrackerExcelStore:
         if not csv_path.exists():
             return {}
 
-        with csv_path.open(newline="", encoding="utf-8") as csvfile:
+        with csv_path.open(newline="", encoding="utf-8-sig") as csvfile:
             return {
                 row["position_id"].strip(): {
                     "position_id": row["position_id"].strip(),
@@ -47,8 +72,35 @@ class WorkTrackerExcelStore:
                 if row.get("position_id", "").strip()
             }
 
+    def _load_operator_areas(self, csv_path):
+        if not csv_path:
+            return {}
+
+        csv_path = Path(csv_path)
+        if not csv_path.exists():
+            return {}
+
+        areas = {}
+        with csv_path.open(newline="", encoding="utf-8-sig") as csvfile:
+            for row in csv.DictReader(csvfile):
+                position_id = row.get("position_id", "").strip()
+                area = row.get("area", "").strip()
+                if position_id:
+                    areas[position_id] = area
+        return areas
+
     def get_operator(self, position_id):
-        return self.operators.get(position_id.strip())
+        operator = self.operators.get(position_id.strip())
+        if operator:
+            operator = dict(operator)
+            operator["area"] = self.get_operator_area(position_id)
+        return operator
+
+    def get_operator_area(self, position_id):
+        area = self.operator_areas.get(position_id.strip(), "").strip()
+        if area in PRODUCTION_AREAS:
+            return area
+        return "Unassigned"
 
     def add_entry(self, position_id, batch_id):
         operator = self.get_operator(position_id)
@@ -61,6 +113,7 @@ class WorkTrackerExcelStore:
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 operator["position_id"],
                 operator["payroll_name"],
+                operator["area"],
                 str(int(batch_id)),
                 operator["benefits_class"],
                 operator["reports_to_name"],
@@ -73,9 +126,9 @@ class WorkTrackerExcelStore:
         rows = self._read_rows()
         recent_rows = rows[-limit:][::-1]
         return [
-            (row[1], row[2], row[3], row[0])
+            (row[1], row[2], row[3], row[4], row[0])
             for row in recent_rows
-            if len(row) >= 4
+            if len(row) >= 5
         ]
 
     def _read_rows(self):
@@ -94,9 +147,42 @@ class WorkTrackerExcelStore:
                 values.append(value)
             rows.append(values)
 
-        if rows and rows[0] == HEADERS:
+        if not rows:
+            return []
+
+        if rows[0] == HEADERS:
             return rows[1:]
-        return rows
+
+        old_headers = [
+            "Created At",
+            "Position ID",
+            "Payroll Name",
+            "Batch ID",
+            "Benefits Class",
+            "Reports To Name",
+            "Position Status",
+        ]
+        if rows[0] == old_headers:
+            return [self._migrate_old_row(row) for row in rows[1:]]
+
+        return [self._normalize_row(row) for row in rows]
+
+    def _migrate_old_row(self, row):
+        row = row + [""] * max(0, 7 - len(row))
+        return [
+            row[0],
+            row[1],
+            row[2],
+            self.get_operator_area(row[1]),
+            row[3],
+            row[4],
+            row[5],
+            row[6],
+        ]
+
+    def _normalize_row(self, row):
+        row = row + [""] * max(0, len(HEADERS) - len(row))
+        return row[: len(HEADERS)]
 
     def _cell_text(self, cell):
         inline = cell.find(f"{{{NS_MAIN}}}is/{{{NS_MAIN}}}t")
@@ -120,7 +206,7 @@ class WorkTrackerExcelStore:
         temp_path.replace(self.workbook_path)
 
     def _sheet_xml(self, rows):
-        dimension = f"A1:G{max(len(rows), 1)}"
+        dimension = f"A1:H{max(len(rows), 1)}"
         row_xml = []
         for row_index, row in enumerate(rows, start=1):
             cells = []
@@ -143,10 +229,11 @@ class WorkTrackerExcelStore:
             '<cols><col min="1" max="1" width="20" customWidth="1"/>'
             '<col min="2" max="2" width="16" customWidth="1"/>'
             '<col min="3" max="3" width="28" customWidth="1"/>'
-            '<col min="4" max="4" width="12" customWidth="1"/>'
-            '<col min="5" max="5" width="22" customWidth="1"/>'
-            '<col min="6" max="6" width="24" customWidth="1"/>'
-            '<col min="7" max="7" width="16" customWidth="1"/></cols>'
+            '<col min="4" max="4" width="16" customWidth="1"/>'
+            '<col min="5" max="5" width="12" customWidth="1"/>'
+            '<col min="6" max="6" width="22" customWidth="1"/>'
+            '<col min="7" max="7" width="24" customWidth="1"/>'
+            '<col min="8" max="8" width="16" customWidth="1"/></cols>'
             f'<sheetData>{"".join(row_xml)}</sheetData>'
             "</worksheet>"
         )
