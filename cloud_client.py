@@ -1,6 +1,9 @@
 import json
+import ssl
 import urllib.error
 import urllib.request
+
+import certifi
 
 
 class CloudClient:
@@ -35,7 +38,8 @@ class CloudClient:
         )
 
         try:
-            with urllib.request.urlopen(request, timeout=15) as response:
+            context = ssl.create_default_context(cafile=certifi.where())
+            with urllib.request.urlopen(request, timeout=15, context=context) as response:
                 payload = response.read().decode("utf-8")
         except urllib.error.HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")
