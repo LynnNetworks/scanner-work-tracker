@@ -26,7 +26,6 @@ class CloudClient:
             {
                 "position_id": operator["position_id"],
                 "payroll_name": operator["payroll_name"],
-                "area": operator.get("area", "Unassigned"),
                 "batch_id": str(batch_id),
                 "tablet_id": self.tablet_id,
             }
