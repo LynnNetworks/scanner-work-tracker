@@ -1,11 +1,14 @@
 import json
 import logging
 import os
+import re
 import uuid
 from csv import writer
 from datetime import datetime, timezone
 from html import escape
 from io import StringIO
+from pathlib import Path
+from urllib.parse import quote
 
 import azure.functions as func
 import requests
@@ -17,10 +20,49 @@ app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
 TABLE_NAME = os.environ.get("EXCEL_TABLE_NAME", "WorkTracker")
 STORAGE_TABLE_NAME = os.environ.get("STORAGE_TABLE_NAME", "WorkTracker")
+SCHEDULE_SHEET_NAME = os.environ.get("SCHEDULE_SHEET_NAME", "PA Fiber")
+SCHEDULE_HEADER_ROW = int(os.environ.get("SCHEDULE_HEADER_ROW", "3"))
+SCHEDULE_FIRST_DATA_ROW = int(os.environ.get("SCHEDULE_FIRST_DATA_ROW", "4"))
+SCHEDULE_LAST_DATA_ROW = int(os.environ.get("SCHEDULE_LAST_DATA_ROW", "358"))
+SCHEDULE_JOB_HEADER = os.environ.get("SCHEDULE_JOB_HEADER", "Job #")
+SCHEDULE_ENABLED = os.environ.get("SCHEDULE_ENABLED", "").lower() in {"1", "true", "yes"}
 READ_ACCESS_TOKEN = os.environ.get(
     "READ_ACCESS_TOKEN",
     "d4de2f6c8f2d4e3f9ac9c2e9b46f3a22",
 )
+
+AREA_COLUMN_MAP = {
+    "cut": "Cut",
+    "prep": "Prep",
+    "term": "Terminated",
+    "terminated": "Terminated",
+    "polish": "Polish",
+    "scope": "Scope",
+    "test": "Test",
+    "pack": "In Pack-Ship",
+    "pack-ship": "In Pack-Ship",
+}
+
+
+def load_operator_area_map():
+    configured = os.environ.get("OPERATOR_AREA_MAP_JSON", "").strip()
+    if configured:
+        try:
+            return json.loads(configured)
+        except json.JSONDecodeError:
+            logging.exception("Invalid OPERATOR_AREA_MAP_JSON setting")
+
+    map_path = Path(__file__).with_name("operator_areas.json")
+    if map_path.exists():
+        try:
+            return json.loads(map_path.read_text(encoding="utf-8"))
+        except Exception:
+            logging.exception("Could not read bundled operator area map")
+
+    return {}
+
+
+OPERATOR_AREA_MAP = load_operator_area_map()
 
 
 @app.route(route="save-entry", methods=["POST"])
@@ -32,7 +74,7 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
 
     position_id = str(payload.get("position_id", "")).strip()
     payroll_name = str(payload.get("payroll_name", "")).strip()
-    area = str(payload.get("area", "Unassigned")).strip() or "Unassigned"
+    area = resolve_operator_area(position_id, payload.get("area"))
     batch_id = str(payload.get("batch_id", "")).strip()
     tablet_id = str(payload.get("tablet_id", "")).strip()
 
@@ -57,7 +99,9 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
         logging.exception("Unexpected save-entry failure")
         return json_response({"error": "Save failed.", "detail": str(error)}, 500)
 
-    return json_response({"ok": True, "created_at": created_at}, 200)
+    schedule_update = update_schedule_from_scan(area, batch_id)
+
+    return json_response({"ok": True, "created_at": created_at, "schedule_update": schedule_update}, 200)
 
 
 @app.route(route="entries.csv", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
@@ -168,6 +212,20 @@ def graph_configured():
     )
 
 
+def schedule_configured():
+    graph_auth_configured = all(
+        os.environ.get(name)
+        for name in [
+            "AZURE_TENANT_ID",
+            "AZURE_CLIENT_ID",
+            "AZURE_CLIENT_SECRET",
+        ]
+    )
+    direct_item_configured = os.environ.get("SCHEDULE_DRIVE_ID") and os.environ.get("SCHEDULE_ITEM_ID")
+    path_configured = os.environ.get("SCHEDULE_SITE_PATH") and os.environ.get("SCHEDULE_FILE_PATH")
+    return SCHEDULE_ENABLED and graph_auth_configured and (direct_item_configured or path_configured)
+
+
 def append_storage_row(created_at, position_id, payroll_name, area, batch_id, tablet_id):
     table = get_storage_table()
     table.create_entity(
@@ -192,6 +250,201 @@ def get_storage_table():
 
 def read_token_valid(req: func.HttpRequest):
     return req.params.get("token") == READ_ACCESS_TOKEN
+
+
+def update_schedule_from_scan(area, batch_id):
+    if not schedule_configured():
+        return {"status": "disabled"}
+
+    parsed = parse_barcode(batch_id)
+    if not parsed:
+        logging.info("Schedule update skipped: invalid barcode length")
+        return {"status": "skipped", "reason": "invalid_barcode"}
+
+    schedule_column = schedule_column_for_area(area)
+    if not schedule_column:
+        logging.info("Schedule update skipped: unmapped area %r", area)
+        return {"status": "skipped", "reason": "unmapped_area"}
+
+    try:
+        result = add_schedule_quantity(parsed["job"], schedule_column, parsed["conn_qty"])
+        logging.info("Schedule update result: %s", result)
+        return result
+    except requests.HTTPError as error:
+        response_text = error.response.text if error.response is not None else str(error)
+        logging.exception("Schedule update failed")
+        return {"status": "error", "detail": response_text}
+    except Exception as error:
+        logging.exception("Schedule update failed")
+        return {"status": "error", "detail": str(error)}
+
+
+def parse_barcode(batch_id):
+    digits = re.sub(r"\D", "", str(batch_id or ""))
+    if len(digits) == 13:
+        return {
+            "job": digits[:6],
+            "line": digits[6:8],
+            "conn_qty": int(digits[8:11]),
+            "batch": digits[11:13],
+        }
+    if len(digits) == 14:
+        return {
+            "job": digits[:6],
+            "line": digits[6:9],
+            "conn_qty": int(digits[9:12]),
+            "batch": digits[12:14],
+        }
+    return None
+
+
+def schedule_column_for_area(area):
+    area_prefix = str(area or "").strip().lower().split("(", 1)[0].strip()
+    return AREA_COLUMN_MAP.get(area_prefix)
+
+
+def resolve_operator_area(position_id, payload_area=None):
+    mapped_area = OPERATOR_AREA_MAP.get(str(position_id or "").strip())
+    if mapped_area:
+        return mapped_area
+    return str(payload_area or "Unassigned").strip() or "Unassigned"
+
+
+def add_schedule_quantity(job_number, schedule_column, quantity):
+    token = get_graph_token()
+    drive_id, item_id = get_schedule_target(token)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    header_values = get_schedule_range(
+        token,
+        drive_id,
+        item_id,
+        f"{SCHEDULE_HEADER_ROW}:{SCHEDULE_HEADER_ROW}",
+    )
+    header_map = {
+        str(value).strip(): index + 1
+        for index, value in enumerate(header_values[0])
+        if value not in (None, "")
+    }
+    job_column = header_map.get(SCHEDULE_JOB_HEADER)
+    target_column = header_map.get(schedule_column)
+    if not job_column or not target_column:
+        return {"status": "skipped", "reason": "schedule_column_missing"}
+
+    job_values = get_schedule_range(
+        token,
+        drive_id,
+        item_id,
+        f"{column_name(job_column)}{SCHEDULE_FIRST_DATA_ROW}:"
+        f"{column_name(job_column)}{SCHEDULE_LAST_DATA_ROW}",
+    )
+    target_row = None
+    for offset, row in enumerate(job_values):
+        value = row[0] if row else ""
+        if normalize_job(value) == job_number:
+            target_row = SCHEDULE_FIRST_DATA_ROW + offset
+            break
+    if target_row is None:
+        return {"status": "skipped", "reason": "job_not_found", "job": job_number}
+
+    cell_address = f"{column_name(target_column)}{target_row}"
+    existing_values = get_schedule_range(token, drive_id, item_id, cell_address)
+    existing = existing_values[0][0] if existing_values and existing_values[0] else None
+    if existing in (None, ""):
+        new_value = quantity
+    elif isinstance(existing, (int, float)):
+        new_value = existing + quantity
+    else:
+        try:
+            new_value = float(str(existing).strip()) + quantity
+        except ValueError:
+            return {
+                "status": "skipped",
+                "reason": "target_not_numeric",
+                "job": job_number,
+                "cell": cell_address,
+            }
+
+    url = (
+        f"{GRAPH_ROOT}/drives/{drive_id}/items/{item_id}/workbook"
+        f"/worksheets/{quote_graph_path(SCHEDULE_SHEET_NAME)}"
+        f"/range(address='{cell_address}')"
+    )
+    response = requests.patch(url, headers=headers, json={"values": [[new_value]]}, timeout=30)
+    response.raise_for_status()
+    return {
+        "status": "updated",
+        "job": job_number,
+        "column": schedule_column,
+        "cell": cell_address,
+        "added": quantity,
+        "new_value": new_value,
+    }
+
+
+def get_schedule_range(token, drive_id, item_id, address):
+    url = (
+        f"{GRAPH_ROOT}/drives/{drive_id}/items/{item_id}/workbook"
+        f"/worksheets/{quote_graph_path(SCHEDULE_SHEET_NAME)}"
+        f"/range(address='{address}')"
+    )
+    response = requests.get(
+        url,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()["values"]
+
+
+def get_schedule_target(token):
+    drive_id = os.environ.get("SCHEDULE_DRIVE_ID")
+    item_id = os.environ.get("SCHEDULE_ITEM_ID")
+    if drive_id and item_id:
+        return drive_id, item_id
+
+    site_path = required_setting("SCHEDULE_SITE_PATH")
+    file_path = required_setting("SCHEDULE_FILE_PATH").strip("/")
+    site_response = requests.get(
+        f"{GRAPH_ROOT}/sites/{quote(site_path, safe=':/')}",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    site_response.raise_for_status()
+    site_id = site_response.json()["id"]
+
+    item_response = requests.get(
+        f"{GRAPH_ROOT}/sites/{site_id}/drive/root:/{quote(file_path, safe='/')}",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    item_response.raise_for_status()
+    item = item_response.json()
+    return item["parentReference"]["driveId"], item["id"]
+
+
+def normalize_job(value):
+    if value is None:
+        return ""
+    if isinstance(value, (int, float)):
+        return str(int(value)).zfill(6)
+    digits = re.sub(r"\D", "", str(value))
+    return digits.zfill(6) if digits else ""
+
+
+def column_name(index):
+    name = ""
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
+
+
+def quote_graph_path(value):
+    return quote(str(value), safe="")
 
 
 def append_excel_row(values):

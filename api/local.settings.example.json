@@ -8,6 +8,16 @@
     "AZURE_CLIENT_SECRET": "",
     "EXCEL_DRIVE_ID": "",
     "EXCEL_ITEM_ID": "",
-    "EXCEL_TABLE_NAME": "WorkTracker"
+    "EXCEL_TABLE_NAME": "WorkTracker",
+    "SCHEDULE_ENABLED": "false",
+    "SCHEDULE_DRIVE_ID": "",
+    "SCHEDULE_ITEM_ID": "",
+    "SCHEDULE_SITE_PATH": "nsiindustries.sharepoint.com:/sites/LynnBTProduction",
+    "SCHEDULE_FILE_PATH": "Shared Documents/General/New Fiber Schedule.xlsx",
+    "SCHEDULE_SHEET_NAME": "PA Fiber",
+    "SCHEDULE_HEADER_ROW": "3",
+    "SCHEDULE_FIRST_DATA_ROW": "4",
+    "SCHEDULE_LAST_DATA_ROW": "358",
+    "SCHEDULE_JOB_HEADER": "Job #"
   }
 }
