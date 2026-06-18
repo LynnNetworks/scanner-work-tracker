@@ -240,6 +240,63 @@ def schedule_pending(req: func.HttpRequest) -> func.HttpResponse:
     return json_response({"updates": pending}, 200)
 
 
+@app.route(route="schedule-next", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def schedule_next(req: func.HttpRequest) -> func.HttpResponse:
+    if not read_token_valid(req):
+        return json_response({"error": "Unauthorized."}, 401)
+
+    try:
+        entities = list(get_storage_table().query_entities("PartitionKey eq 'entry'"))
+        candidates = []
+        for row in entities:
+            parsed = parse_barcode(str(row.get("BatchId", "")))
+            schedule_column = schedule_column_for_area(row.get("Area", ""))
+            if not parsed or not schedule_column:
+                continue
+            candidates.append((row, parsed, schedule_column))
+
+        candidates.sort(key=lambda item: item[0].get("CreatedAt", ""))
+        for row, parsed, schedule_column in candidates:
+            if row.get("ScheduleStatus") == "pending":
+                return json_response(
+                    {
+                        "row_keys": [row["RowKey"]],
+                        "job": parsed["job"],
+                        "quantity": parsed["conn_qty"],
+                        "column": schedule_column,
+                        "noop": False,
+                    },
+                    200,
+                )
+
+        if candidates:
+            row, parsed, _ = candidates[-1]
+            return json_response(
+                {
+                    "row_keys": [],
+                    "job": parsed["job"],
+                    "quantity": 0,
+                    "column": "",
+                    "noop": True,
+                },
+                200,
+            )
+    except Exception as error:
+        logging.exception("Could not read next schedule update")
+        return json_response({"error": "Could not read next schedule update.", "detail": str(error)}, 500)
+
+    return json_response(
+        {
+            "row_keys": [],
+            "job": "327111",
+            "quantity": 0,
+            "column": "",
+            "noop": True,
+        },
+        200,
+    )
+
+
 @app.route(route="schedule-feed", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 def schedule_feed(req: func.HttpRequest) -> func.HttpResponse:
     if not read_token_valid(req):

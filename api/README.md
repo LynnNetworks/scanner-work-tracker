@@ -83,6 +83,10 @@ the returned updates, then posts the applied `row_key` values to
 For environments without Power Automate Premium, use the standard RSS trigger with
 `GET /api/schedule-feed?token=...`. Each qualifying scan is published with a stable unique ID.
 
+For Power Automate Premium, the recommended one-minute flow reads
+`GET /api/schedule-next?token=...`, updates one schedule row, then acknowledges its returned
+`row_keys` through `POST /api/schedule-ack?token=...`.
+
 Blank target cells are treated as zero. Numeric target cells have the connector quantity added. Text/status cells, missing jobs, unmapped areas, and invalid barcode lengths are skipped and logged so scanner saves still succeed.
 
 The installed tablet app does not send operator area in its cloud payload, so the function resolves area by `Position ID` using bundled `operator_areas.json`. To override without redeploying code, set `OPERATOR_AREA_MAP_JSON` to a JSON object like `{"FM2000118":"prep(reg)"}`.
