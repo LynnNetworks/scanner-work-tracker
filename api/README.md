@@ -25,14 +25,14 @@ When Microsoft Graph settings are not configured, entries are stored in Azure Ta
 
 ### Microsoft Graph Excel Mode
 
-- `AZURE_TENANT_ID`
-- `AZURE_CLIENT_ID`
-- `AZURE_CLIENT_SECRET`
+- Either `AZURE_USE_MANAGED_IDENTITY=true`
+- Or `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`
 - `EXCEL_DRIVE_ID`
 - `EXCEL_ITEM_ID`
 - `EXCEL_TABLE_NAME`
 
 The Excel workbook must be stored in OneDrive for Business or SharePoint and contain a table named `WorkTracker`.
+The selected identity must have Microsoft Graph application permission to access the workbook.
 
 Recommended columns:
 
@@ -63,6 +63,8 @@ The 6-digit job number is matched against the schedule's `Job #` column. The ope
 Set these app settings to turn this on:
 
 - `SCHEDULE_ENABLED=true`
+- Either `AZURE_USE_MANAGED_IDENTITY=true`
+- Or `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`
 - Either `SCHEDULE_DRIVE_ID` and `SCHEDULE_ITEM_ID`
 - Or `SCHEDULE_SITE_PATH=nsiindustries.sharepoint.com:/sites/LynnBTProduction` and `SCHEDULE_FILE_PATH=Shared Documents/General/New Fiber Schedule.xlsx`
 - `SCHEDULE_SHEET_NAME=PA Fiber`

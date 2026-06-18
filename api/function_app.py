@@ -200,12 +200,9 @@ def cleanup_test_entries(req: func.HttpRequest) -> func.HttpResponse:
 
 
 def graph_configured():
-    return all(
+    return graph_auth_configured() and all(
         os.environ.get(name)
         for name in [
-            "AZURE_TENANT_ID",
-            "AZURE_CLIENT_ID",
-            "AZURE_CLIENT_SECRET",
             "EXCEL_DRIVE_ID",
             "EXCEL_ITEM_ID",
         ]
@@ -213,7 +210,15 @@ def graph_configured():
 
 
 def schedule_configured():
-    graph_auth_configured = all(
+    direct_item_configured = os.environ.get("SCHEDULE_DRIVE_ID") and os.environ.get("SCHEDULE_ITEM_ID")
+    path_configured = os.environ.get("SCHEDULE_SITE_PATH") and os.environ.get("SCHEDULE_FILE_PATH")
+    return SCHEDULE_ENABLED and graph_auth_configured() and (direct_item_configured or path_configured)
+
+
+def graph_auth_configured():
+    if os.environ.get("AZURE_USE_MANAGED_IDENTITY", "").lower() == "true":
+        return True
+    return all(
         os.environ.get(name)
         for name in [
             "AZURE_TENANT_ID",
@@ -221,9 +226,6 @@ def schedule_configured():
             "AZURE_CLIENT_SECRET",
         ]
     )
-    direct_item_configured = os.environ.get("SCHEDULE_DRIVE_ID") and os.environ.get("SCHEDULE_ITEM_ID")
-    path_configured = os.environ.get("SCHEDULE_SITE_PATH") and os.environ.get("SCHEDULE_FILE_PATH")
-    return SCHEDULE_ENABLED and graph_auth_configured and (direct_item_configured or path_configured)
 
 
 def append_storage_row(created_at, position_id, payroll_name, area, batch_id, tablet_id):
@@ -468,6 +470,21 @@ def append_excel_row(values):
 
 
 def get_graph_token():
+    if os.environ.get("AZURE_USE_MANAGED_IDENTITY", "").lower() == "true":
+        endpoint = required_setting("IDENTITY_ENDPOINT")
+        identity_header = required_setting("IDENTITY_HEADER")
+        response = requests.get(
+            endpoint,
+            params={
+                "resource": "https://graph.microsoft.com",
+                "api-version": "2019-08-01",
+            },
+            headers={"X-IDENTITY-HEADER": identity_header},
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()["access_token"]
+
     tenant_id = required_setting("AZURE_TENANT_ID")
     client_id = required_setting("AZURE_CLIENT_ID")
     client_secret = required_setting("AZURE_CLIENT_SECRET")
