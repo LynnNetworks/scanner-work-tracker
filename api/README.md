@@ -70,6 +70,8 @@ Set these app settings to turn this on:
 - `SCHEDULE_SHEET_NAME=PA Fiber`
 - `SCHEDULE_HEADER_ROW=3`
 - `SCHEDULE_FIRST_DATA_ROW=4`
+- `SCHEDULE_LAST_DATA_ROW=358`
+- `SCHEDULE_JOB_HEADER=Job #`
 
 ### Power Automate Schedule Queue
 
@@ -77,8 +79,9 @@ Set `FLOW_SCHEDULE_QUEUE_ENABLED=true` to queue qualifying scans for Power Autom
 writing to the schedule directly. The flow reads `GET /api/schedule-pending?token=...`, applies
 the returned updates, then posts the applied `row_key` values to
 `POST /api/schedule-ack?token=...`.
-- `SCHEDULE_LAST_DATA_ROW=358`
-- `SCHEDULE_JOB_HEADER=Job #`
+
+For environments without Power Automate Premium, use the standard RSS trigger with
+`GET /api/schedule-feed?token=...`. Each qualifying scan is published with a stable unique ID.
 
 Blank target cells are treated as zero. Numeric target cells have the connector quantity added. Text/status cells, missing jobs, unmapped areas, and invalid barcode lengths are skipped and logged so scanner saves still succeed.
 

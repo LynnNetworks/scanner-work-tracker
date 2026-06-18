@@ -5,6 +5,7 @@ import re
 import uuid
 from csv import writer
 from datetime import datetime, timezone
+from email.utils import format_datetime
 from html import escape
 from io import StringIO
 from pathlib import Path
@@ -237,6 +238,59 @@ def schedule_pending(req: func.HttpRequest) -> func.HttpResponse:
         return json_response({"error": "Could not read pending schedule updates.", "detail": str(error)}, 500)
 
     return json_response({"updates": pending}, 200)
+
+
+@app.route(route="schedule-feed", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def schedule_feed(req: func.HttpRequest) -> func.HttpResponse:
+    if not read_token_valid(req):
+        return json_response({"error": "Unauthorized."}, 401)
+
+    try:
+        entities = get_storage_table().query_entities("PartitionKey eq 'entry'")
+        items = []
+        for row in entities:
+            if row.get("ScheduleStatus") != "pending":
+                continue
+            parsed = parse_barcode(str(row.get("BatchId", "")))
+            schedule_column = schedule_column_for_area(row.get("Area", ""))
+            if not parsed or not schedule_column:
+                continue
+            created_at = datetime.strptime(
+                row.get("CreatedAt", ""),
+                "%Y-%m-%d %H:%M:%S UTC",
+            ).replace(tzinfo=timezone.utc)
+            payload = json.dumps(
+                {
+                    "row_key": row["RowKey"],
+                    "job": parsed["job"],
+                    "quantity": parsed["conn_qty"],
+                    "column": schedule_column,
+                },
+                separators=(",", ":"),
+            )
+            items.append(
+                "<item>"
+                f"<title>{escape(parsed['job'])} - {escape(schedule_column)}</title>"
+                f"<guid isPermaLink=\"false\">{escape(row['RowKey'])}</guid>"
+                f"<pubDate>{format_datetime(created_at)}</pubDate>"
+                f"<description>{escape(payload)}</description>"
+                "</item>"
+            )
+        items.reverse()
+    except Exception as error:
+        logging.exception("Could not build schedule feed")
+        return json_response({"error": "Could not build schedule feed.", "detail": str(error)}, 500)
+
+    xml = (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<rss version=\"2.0\"><channel>"
+        "<title>Scanner Schedule Updates</title>"
+        "<link>https://scanner-work-tracker-egenova-bjg0faecehdre2d7.canadacentral-01.azurewebsites.net</link>"
+        "<description>Qualifying scanner entries awaiting schedule updates.</description>"
+        + "".join(items)
+        + "</channel></rss>"
+    )
+    return func.HttpResponse(xml, status_code=200, mimetype="application/rss+xml")
 
 
 @app.route(route="schedule-ack", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
