@@ -26,6 +26,11 @@ SCHEDULE_FIRST_DATA_ROW = int(os.environ.get("SCHEDULE_FIRST_DATA_ROW", "4"))
 SCHEDULE_LAST_DATA_ROW = int(os.environ.get("SCHEDULE_LAST_DATA_ROW", "358"))
 SCHEDULE_JOB_HEADER = os.environ.get("SCHEDULE_JOB_HEADER", "Job #")
 SCHEDULE_ENABLED = os.environ.get("SCHEDULE_ENABLED", "").lower() in {"1", "true", "yes"}
+FLOW_SCHEDULE_QUEUE_ENABLED = os.environ.get("FLOW_SCHEDULE_QUEUE_ENABLED", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 READ_ACCESS_TOKEN = os.environ.get(
     "READ_ACCESS_TOKEN",
     "d4de2f6c8f2d4e3f9ac9c2e9b46f3a22",
@@ -99,7 +104,10 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
         logging.exception("Unexpected save-entry failure")
         return json_response({"error": "Save failed.", "detail": str(error)}, 500)
 
-    schedule_update = update_schedule_from_scan(area, batch_id)
+    if FLOW_SCHEDULE_QUEUE_ENABLED:
+        schedule_update = queue_status_for_scan(area, batch_id)
+    else:
+        schedule_update = update_schedule_from_scan(area, batch_id)
 
     return json_response({"ok": True, "created_at": created_at, "schedule_update": schedule_update}, 200)
 
@@ -199,6 +207,64 @@ def cleanup_test_entries(req: func.HttpRequest) -> func.HttpResponse:
     return json_response({"ok": True, "deleted": deleted}, 200)
 
 
+@app.route(route="schedule-pending", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def schedule_pending(req: func.HttpRequest) -> func.HttpResponse:
+    if not read_token_valid(req):
+        return json_response({"error": "Unauthorized."}, 401)
+
+    try:
+        entities = get_storage_table().query_entities("PartitionKey eq 'entry'")
+        pending = []
+        for row in entities:
+            if row.get("ScheduleStatus") != "pending":
+                continue
+            parsed = parse_barcode(str(row.get("BatchId", "")))
+            schedule_column = schedule_column_for_area(row.get("Area", ""))
+            if not parsed or not schedule_column:
+                continue
+            pending.append(
+                {
+                    "row_key": row["RowKey"],
+                    "created_at": row.get("CreatedAt", ""),
+                    "job": parsed["job"],
+                    "quantity": parsed["conn_qty"],
+                    "column": schedule_column,
+                }
+            )
+        pending.sort(key=lambda row: row["created_at"])
+    except Exception as error:
+        logging.exception("Could not read pending schedule updates")
+        return json_response({"error": "Could not read pending schedule updates.", "detail": str(error)}, 500)
+
+    return json_response({"updates": pending}, 200)
+
+
+@app.route(route="schedule-ack", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def schedule_ack(req: func.HttpRequest) -> func.HttpResponse:
+    if not read_token_valid(req):
+        return json_response({"error": "Unauthorized."}, 401)
+
+    try:
+        payload = req.get_json()
+        row_keys = payload.get("row_keys", [])
+        if not isinstance(row_keys, list):
+            return json_response({"error": "row_keys must be an array."}, 400)
+
+        table = get_storage_table()
+        acknowledged = 0
+        for row_key in row_keys:
+            entity = table.get_entity("entry", str(row_key))
+            entity["ScheduleStatus"] = "applied"
+            entity["ScheduleAppliedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            table.update_entity(entity)
+            acknowledged += 1
+    except Exception as error:
+        logging.exception("Could not acknowledge schedule updates")
+        return json_response({"error": "Could not acknowledge schedule updates.", "detail": str(error)}, 500)
+
+    return json_response({"ok": True, "acknowledged": acknowledged}, 200)
+
+
 def graph_configured():
     return graph_auth_configured() and all(
         os.environ.get(name)
@@ -230,6 +296,7 @@ def graph_auth_configured():
 
 def append_storage_row(created_at, position_id, payroll_name, area, batch_id, tablet_id):
     table = get_storage_table()
+    schedule_status = "pending" if FLOW_SCHEDULE_QUEUE_ENABLED and is_schedule_candidate(area, batch_id) else "ignored"
     table.create_entity(
         {
             "PartitionKey": "entry",
@@ -240,6 +307,7 @@ def append_storage_row(created_at, position_id, payroll_name, area, batch_id, ta
             "Area": area,
             "BatchId": batch_id,
             "TabletId": tablet_id,
+            "ScheduleStatus": schedule_status,
         }
     )
 
@@ -279,6 +347,16 @@ def update_schedule_from_scan(area, batch_id):
     except Exception as error:
         logging.exception("Schedule update failed")
         return {"status": "error", "detail": str(error)}
+
+
+def queue_status_for_scan(area, batch_id):
+    if not is_schedule_candidate(area, batch_id):
+        return {"status": "skipped", "reason": "invalid_barcode_or_area"}
+    return {"status": "queued"}
+
+
+def is_schedule_candidate(area, batch_id):
+    return bool(parse_barcode(batch_id) and schedule_column_for_area(area))
 
 
 def parse_barcode(batch_id):

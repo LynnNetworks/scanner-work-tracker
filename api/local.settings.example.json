@@ -11,6 +11,7 @@
     "EXCEL_ITEM_ID": "",
     "EXCEL_TABLE_NAME": "WorkTracker",
     "SCHEDULE_ENABLED": "false",
+    "FLOW_SCHEDULE_QUEUE_ENABLED": "false",
     "SCHEDULE_DRIVE_ID": "",
     "SCHEDULE_ITEM_ID": "",
     "SCHEDULE_SITE_PATH": "nsiindustries.sharepoint.com:/sites/LynnBTProduction",

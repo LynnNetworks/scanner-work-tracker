@@ -70,6 +70,13 @@ Set these app settings to turn this on:
 - `SCHEDULE_SHEET_NAME=PA Fiber`
 - `SCHEDULE_HEADER_ROW=3`
 - `SCHEDULE_FIRST_DATA_ROW=4`
+
+### Power Automate Schedule Queue
+
+Set `FLOW_SCHEDULE_QUEUE_ENABLED=true` to queue qualifying scans for Power Automate instead of
+writing to the schedule directly. The flow reads `GET /api/schedule-pending?token=...`, applies
+the returned updates, then posts the applied `row_key` values to
+`POST /api/schedule-ack?token=...`.
 - `SCHEDULE_LAST_DATA_ROW=358`
 - `SCHEDULE_JOB_HEADER=Job #`
 
