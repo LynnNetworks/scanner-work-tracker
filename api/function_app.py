@@ -5,6 +5,7 @@ import re
 import uuid
 from csv import writer
 from datetime import datetime, timezone
+from email.utils import format_datetime
 from html import escape
 from io import StringIO
 from pathlib import Path
@@ -267,15 +268,13 @@ def schedule_feed(req: func.HttpRequest) -> func.HttpResponse:
                 },
                 separators=(",", ":"),
             )
-            unique_microsecond = uuid.UUID(row["RowKey"][-36:]).int % 1000000
-            updated_at = created_at.replace(microsecond=unique_microsecond).isoformat().replace("+00:00", "Z")
             items.append(
-                "<entry>"
+                "<item>"
                 f"<title>{escape(parsed['job'])} - {escape(schedule_column)}</title>"
-                f"<id>{escape(row['RowKey'])}</id>"
-                f"<updated>{updated_at}</updated>"
-                f"<summary>{escape(payload)}</summary>"
-                "</entry>"
+                f"<guid isPermaLink=\"false\">{escape(row['RowKey'])}</guid>"
+                f"<pubDate>{format_datetime(created_at)}</pubDate>"
+                f"<description>{escape(payload)}</description>"
+                "</item>"
             )
         items.reverse()
     except Exception as error:
@@ -284,15 +283,14 @@ def schedule_feed(req: func.HttpRequest) -> func.HttpResponse:
 
     xml = (
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-        "<feed xmlns=\"http://www.w3.org/2005/Atom\">"
+        "<rss version=\"2.0\"><channel>"
         "<title>Scanner Schedule Updates</title>"
-        "<id>scanner-work-tracker-schedule-updates</id>"
-        "<updated>2026-06-18T00:00:00Z</updated>"
-        "<link href=\"https://scanner-work-tracker-egenova-bjg0faecehdre2d7.canadacentral-01.azurewebsites.net\"/>"
+        "<link>https://scanner-work-tracker-egenova-bjg0faecehdre2d7.canadacentral-01.azurewebsites.net</link>"
+        "<description>Qualifying scanner entries awaiting schedule updates.</description>"
         + "".join(items)
-        + "</feed>"
+        + "</channel></rss>"
     )
-    return func.HttpResponse(xml, status_code=200, mimetype="application/atom+xml")
+    return func.HttpResponse(xml, status_code=200, mimetype="application/rss+xml")
 
 
 @app.route(route="schedule-ack", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
