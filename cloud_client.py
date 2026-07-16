@@ -7,10 +7,11 @@ import certifi
 
 
 class CloudClient:
-    def __init__(self, endpoint_url="", function_key="", tablet_id=""):
+    def __init__(self, endpoint_url="", function_key="", tablet_id="", read_access_token=""):
         self.endpoint_url = endpoint_url.strip()
         self.function_key = function_key.strip()
         self.tablet_id = tablet_id.strip()
+        self.read_access_token = read_access_token.strip()
 
     @property
     def enabled(self):
@@ -51,3 +52,48 @@ class CloudClient:
         if not result.get("ok"):
             raise RuntimeError(result.get("error", "Cloud save failed."))
         return result
+
+    def find_live_operator(self, position_id):
+        if not self.enabled or not self.read_access_token:
+            return None
+
+        target_position_id = str(position_id or "").strip().upper()
+        if not target_position_id:
+            return None
+
+        url = self._operator_areas_url()
+        try:
+            context = ssl.create_default_context(cafile=certifi.where())
+            with urllib.request.urlopen(url, timeout=15, context=context) as response:
+                payload = response.read().decode("utf-8")
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Cloud roster lookup failed: {detail}") from error
+        except urllib.error.URLError as error:
+            raise RuntimeError(f"Could not reach cloud roster: {error.reason}") from error
+
+        result = json.loads(payload or "{}")
+        for row in result.get("assignments", []):
+            if str(row.get("position_id", "")).strip().upper() == target_position_id:
+                return {
+                    "position_id": str(row.get("position_id", "")).strip(),
+                    "payroll_name": str(row.get("payroll_name", "")).strip(),
+                    "benefits_class": "",
+                    "reports_to_name": "",
+                    "position_status": "Active",
+                }
+        return None
+
+    def _operator_areas_url(self):
+        if "/save-entry" in self.endpoint_url:
+            url = self.endpoint_url.replace("/save-entry", "/operator-areas")
+        else:
+            url = self.endpoint_url.rstrip("/") + "/operator-areas"
+
+        separator = "&" if "?" in url else "?"
+        url = f"{url}{separator}token={self.read_access_token}"
+
+        if self.function_key:
+            separator = "&" if "?" in url else "?"
+            url = f"{url}{separator}code={self.function_key}"
+        return url

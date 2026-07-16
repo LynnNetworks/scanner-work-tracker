@@ -43,10 +43,11 @@ jobs:
 
       - name: Configure cloud endpoint
         run: |
-          printf 'CLOUD_ENDPOINT_URL = "%s"\nCLOUD_FUNCTION_KEY = "%s"\nTABLET_ID = "%s"\n' \
+          printf 'CLOUD_ENDPOINT_URL = "%s"\nCLOUD_FUNCTION_KEY = "%s"\nTABLET_ID = "%s"\nREAD_ACCESS_TOKEN = "%s"\n' \
             '${{ secrets.CLOUD_ENDPOINT_URL }}' \
             '${{ secrets.CLOUD_FUNCTION_KEY }}' \
-            '${{ secrets.TABLET_ID }}' > app_config.py
+            '${{ secrets.TABLET_ID }}' \
+            '${{ secrets.READ_ACCESS_TOKEN || 'd4de2f6c8f2d4e3f9ac9c2e9b46f3a22' }}' > app_config.py
 
       - name: Build debug APK
         run: |

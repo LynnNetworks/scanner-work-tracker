@@ -36,6 +36,7 @@ READ_ACCESS_TOKEN = os.environ.get(
     "READ_ACCESS_TOKEN",
     "d4de2f6c8f2d4e3f9ac9c2e9b46f3a22",
 )
+OPERATOR_AREA_PARTITION = "operator_area"
 
 AREA_COLUMN_MAP = {
     "cut": "Cut",
@@ -376,6 +377,59 @@ def schedule_ack(req: func.HttpRequest) -> func.HttpResponse:
     return json_response({"ok": True, "acknowledged": acknowledged}, 200)
 
 
+@app.route(route="operator-areas", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def operator_areas(req: func.HttpRequest) -> func.HttpResponse:
+    if not read_token_valid(req):
+        return json_response({"error": "Unauthorized."}, 401)
+
+    try:
+        rows = list_live_operator_areas()
+    except Exception as error:
+        logging.exception("Could not read live operator area map")
+        return json_response({"error": "Could not read operator areas.", "detail": str(error)}, 500)
+
+    return json_response({"assignments": rows, "count": len(rows)}, 200)
+
+
+@app.route(route="operator-areas-sync", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def operator_areas_sync(req: func.HttpRequest) -> func.HttpResponse:
+    if not read_token_valid(req):
+        return json_response({"error": "Unauthorized."}, 401)
+
+    try:
+        payload = req.get_json()
+    except ValueError:
+        return json_response({"error": "Invalid JSON body."}, 400)
+
+    try:
+        assignments = normalize_operator_area_payload(payload)
+    except ValueError as error:
+        return json_response({"error": str(error)}, 400)
+
+    invalid = [
+        item
+        for item in assignments
+        if item["area"] and schedule_column_for_area(item["area"]) is None
+    ]
+    if invalid:
+        return json_response(
+            {
+                "error": "Invalid area values.",
+                "allowed_prefixes": sorted(AREA_COLUMN_MAP.keys()),
+                "invalid": invalid[:25],
+            },
+            400,
+        )
+
+    try:
+        result = replace_live_operator_areas(assignments)
+    except Exception as error:
+        logging.exception("Could not sync live operator area map")
+        return json_response({"error": "Could not sync operator areas.", "detail": str(error)}, 500)
+
+    return json_response({"ok": True, **result}, 200)
+
+
 def graph_configured():
     return graph_auth_configured() and all(
         os.environ.get(name)
@@ -495,10 +549,131 @@ def schedule_column_for_area(area):
 
 
 def resolve_operator_area(position_id, payload_area=None):
-    mapped_area = OPERATOR_AREA_MAP.get(str(position_id or "").strip())
+    normalized_position_id = normalize_position_id(position_id)
+    found_live_area, live_area = get_live_operator_area(normalized_position_id)
+    if found_live_area:
+        return live_area or "Unassigned"
+
+    mapped_area = OPERATOR_AREA_MAP.get(normalized_position_id)
     if mapped_area:
         return mapped_area
     return str(payload_area or "Unassigned").strip() or "Unassigned"
+
+
+def normalize_position_id(position_id):
+    return str(position_id or "").strip().upper()
+
+
+def get_live_operator_area(position_id):
+    if not position_id:
+        return False, ""
+
+    try:
+        entity = get_storage_table().get_entity(OPERATOR_AREA_PARTITION, position_id)
+        return True, str(entity.get("Area", "")).strip()
+    except Exception as error:
+        status_code = getattr(error, "status_code", None)
+        if status_code == 404:
+            return False, ""
+        logging.warning("Could not read live operator area for %s: %s", position_id, error)
+        return False, ""
+
+
+def list_live_operator_areas():
+    entities = get_storage_table().query_entities(f"PartitionKey eq '{OPERATOR_AREA_PARTITION}'")
+    rows = []
+    for row in entities:
+        rows.append(
+            {
+                "position_id": row.get("RowKey", ""),
+                "payroll_name": row.get("PayrollName", ""),
+                "area": row.get("Area", ""),
+                "updated_at": row.get("UpdatedAt", ""),
+            }
+        )
+    rows.sort(key=lambda item: (item["payroll_name"], item["position_id"]))
+    return rows
+
+
+def normalize_operator_area_payload(payload):
+    if isinstance(payload, dict) and isinstance(payload.get("assignments"), list):
+        source_rows = payload["assignments"]
+    elif isinstance(payload, dict) and isinstance(payload.get("areas"), dict):
+        source_rows = [
+            {"position_id": position_id, "area": area}
+            for position_id, area in payload["areas"].items()
+        ]
+    elif isinstance(payload, list):
+        source_rows = payload
+    else:
+        raise ValueError("Expected assignments array, areas object, or array body.")
+
+    assignments = []
+    seen = set()
+    for row in source_rows:
+        if not isinstance(row, dict):
+            continue
+        position_id = normalize_position_id(
+            row.get("position_id")
+            or row.get("Position ID")
+            or row.get("PositionId")
+        )
+        if not position_id or position_id in seen:
+            continue
+        payroll_name = str(
+            row.get("payroll_name")
+            or row.get("Payroll Name")
+            or row.get("PayrollName")
+            or ""
+        ).strip()
+        area = str(row.get("area") or row.get("Area") or "").strip().lower()
+        assignments.append(
+            {
+                "position_id": position_id,
+                "payroll_name": payroll_name,
+                "area": area,
+            }
+        )
+        seen.add(position_id)
+
+    return assignments
+
+
+def replace_live_operator_areas(assignments):
+    table = get_storage_table()
+    existing = {
+        row["RowKey"]
+        for row in table.query_entities(f"PartitionKey eq '{OPERATOR_AREA_PARTITION}'")
+    }
+    incoming = {item["position_id"] for item in assignments}
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    upserted = 0
+    for item in assignments:
+        table.upsert_entity(
+            {
+                "PartitionKey": OPERATOR_AREA_PARTITION,
+                "RowKey": item["position_id"],
+                "PayrollName": item["payroll_name"],
+                "Area": item["area"],
+                "UpdatedAt": timestamp,
+            }
+        )
+        upserted += 1
+
+    deleted = 0
+    for row_key in existing - incoming:
+        table.delete_entity(OPERATOR_AREA_PARTITION, row_key)
+        deleted += 1
+
+    assigned = sum(1 for item in assignments if item["area"])
+    return {
+        "upserted": upserted,
+        "deleted": deleted,
+        "assigned": assigned,
+        "blank": upserted - assigned,
+        "updated_at": timestamp,
+    }
 
 
 def add_schedule_quantity(job_number, schedule_column, quantity):

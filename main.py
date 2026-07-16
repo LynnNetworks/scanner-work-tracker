@@ -6,7 +6,11 @@ from kivy.properties import BooleanProperty, StringProperty
 from kivy.utils import platform
 from kivy.uix.boxlayout import BoxLayout
 
-from app_config import CLOUD_ENDPOINT_URL, CLOUD_FUNCTION_KEY, TABLET_ID
+try:
+    from app_config import CLOUD_ENDPOINT_URL, CLOUD_FUNCTION_KEY, TABLET_ID, READ_ACCESS_TOKEN
+except ImportError:
+    from app_config import CLOUD_ENDPOINT_URL, CLOUD_FUNCTION_KEY, TABLET_ID
+    READ_ACCESS_TOKEN = ""
 from cloud_client import CloudClient
 from excel_store import WorkTrackerExcelStore
 
@@ -84,7 +88,12 @@ class TrackerRoot(BoxLayout):
             app.workbook_path,
             Path(__file__).with_name("operators.csv"),
         )
-        self.cloud = CloudClient(CLOUD_ENDPOINT_URL, CLOUD_FUNCTION_KEY, TABLET_ID)
+        self.cloud = CloudClient(
+            CLOUD_ENDPOINT_URL,
+            CLOUD_FUNCTION_KEY,
+            TABLET_ID,
+            READ_ACCESS_TOKEN,
+        )
         self.refresh_recent_entries()
 
     def save_entry(self):
@@ -99,8 +108,15 @@ class TrackerRoot(BoxLayout):
             return
         operator = self.store.get_operator(operator_id)
         if not operator:
-            self.set_status("Position ID was not found in the roster.", False)
-            return
+            try:
+                operator = self.cloud.find_live_operator(operator_id)
+            except RuntimeError as error:
+                self.set_status(str(error), False)
+                return
+            if not operator:
+                self.set_status("Position ID was not found in the roster.", False)
+                return
+            self.store.add_operator(operator)
         if operator["position_status"].lower() != "active":
             self.set_status(f"{operator['payroll_name']} is not active.", False)
             return

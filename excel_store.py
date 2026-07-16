@@ -16,6 +16,7 @@ HEADERS = [
 ]
 
 PRODUCTION_AREAS = [
+    "cut",
     "prep(reg)",
     "prep(mtp)",
     "prep(288)",
@@ -59,7 +60,7 @@ class WorkTrackerExcelStore:
 
         with csv_path.open(newline="", encoding="utf-8-sig") as csvfile:
             return {
-                row["position_id"].strip(): {
+                row["position_id"].strip().upper(): {
                     "position_id": row["position_id"].strip(),
                     "payroll_name": row["payroll_name"].strip(),
                     "benefits_class": row.get("benefits_class", "").strip(),
@@ -71,7 +72,19 @@ class WorkTrackerExcelStore:
             }
 
     def get_operator(self, position_id):
-        return self.operators.get(position_id.strip())
+        return self.operators.get(position_id.strip().upper())
+
+    def add_operator(self, operator):
+        position_id = str(operator.get("position_id", "")).strip()
+        if not position_id:
+            return
+        self.operators[position_id.upper()] = {
+            "position_id": position_id,
+            "payroll_name": str(operator.get("payroll_name", "")).strip(),
+            "benefits_class": str(operator.get("benefits_class", "")).strip(),
+            "reports_to_name": str(operator.get("reports_to_name", "")).strip(),
+            "position_status": str(operator.get("position_status", "Active")).strip() or "Active",
+        }
 
     def add_entry(self, position_id, batch_id):
         operator = self.get_operator(position_id)

@@ -89,4 +89,51 @@ For Power Automate Premium, the recommended one-minute flow reads
 
 Blank target cells are treated as zero. Numeric target cells have the connector quantity added. Text/status cells, missing jobs, unmapped areas, and invalid barcode lengths are skipped and logged so scanner saves still succeed.
 
-The installed tablet app does not send operator area in its cloud payload, so the function resolves area by `Position ID` using bundled `operator_areas.json`. To override without redeploying code, set `OPERATOR_AREA_MAP_JSON` to a JSON object like `{"FM2000118":"prep(reg)"}`.
+The installed tablet app does not send operator area in its cloud payload, so the function resolves area by `Position ID`.
+
+Resolution order:
+
+1. Live operator-area rows in Azure Table Storage, partition `operator_area`.
+2. Bundled `operator_areas.json`.
+3. The app payload area, if any.
+4. `Unassigned`.
+
+This allows floor leads to edit the shared workbook's `Area Assignments` sheet without reinstalling the tablet app.
+
+### Operator Area Sync Endpoints
+
+Power Automate can sync `Scanner_Work_Tracker.xlsx` > `Area Assignments` to Azure with:
+
+`POST /api/operator-areas-sync?token=...`
+
+Body:
+
+```json
+{
+  "assignments": [
+    {
+      "position_id": "FM2030611N",
+      "payroll_name": "Urena, Nilson",
+      "area": "cut"
+    }
+  ]
+}
+```
+
+Blank `area` values are allowed and intentionally override old bundled assignments as `Unassigned`.
+
+Supported schedule area prefixes:
+
+- `cut` -> `Cut`
+- `prep(...)` -> `Prep`
+- `term(...)` -> `Terminated`
+- `polish(...)` -> `Polish`
+- `scope(...)` -> `Scope`
+- `test(...)` -> `Test`
+- `pack(...)` / `pack-ship(...)` -> `In Pack-Ship`
+
+To inspect the live map:
+
+`GET /api/operator-areas?token=...`
+
+Legacy override: set `OPERATOR_AREA_MAP_JSON` to a JSON object like `{"FM2000118":"prep(reg)"}`. The live table takes precedence when a matching Position ID exists.

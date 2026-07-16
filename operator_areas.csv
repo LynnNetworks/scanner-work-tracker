@@ -1,64 +1,67 @@
 position_id,payroll_name,area
 FM2069752N,"Acosta, Aridia",prep(reg)
-FM2046779N,"Amezquita, Elnery",
+FM2046779N,"Amezquita, Elnery",scope(reg)
 FM2016689N,"Arteaga, Jordy",
 FM2022449N,"Baez, Alexis",
 FM2053373N,"Baez, Yubeidy",
-FM2055211,"Begum, Marium",
+FM2055211,"Begum, Marium",scope(mtp)
 FM2030071N,"Bueno, Yasmil",
-FM2028324N,"Chen, Amy",
-FM2000081,"Chen, Jiajun",
-FM2000082,"Chen, Jiayu",
-FM20063675N,"Ciprian, nelson",
-FM2080712N,"DeJesus, Joelee",
-FM2000093,"Deb Nath, Madhabi",
-FM2000103,"Ferdous, Gunnatul",
-FM2003496N,"Fernandez, Miosotis",
-FM2055229,"Garcia, Azucena",
+FM2028324N,"Chen, Amy",prep(reg)
+FM2000081,"Chen, Jiajun",term(reg)
+FM2000082,"Chen, Jiayu",term(mtp)
+FM20063675N,"Ciprian, nelson",polish(flat)
+FM2080712N,"DeJesus, Joelee",term(flat)
+FM2000093,"Deb Nath, Madhabi",term(reg)
+FM2000103,"Ferdous, Gunnatul",term(reg)
+FM2003496N,"Fernandez, Miosotis",prep(reg)
+FM2055229,"Garcia, Azucena",test(reg)
 FM2000118,"Genova, Edwin",prep(reg)
 FM2035650N,"Gonzalez, Silverio",
-FM2055119,"Heckman, Jennifer",
+FM2055119,"Heckman, Jennifer",term(reg)
 FM2071358N,"Hernandez, Julissa",
 FM2099748N,"Hernandez, Leonel",
-FM2055096,"Hussaini, Fatemeh",
-FM2055095,"Hussaini, Rahman",
+FM2055096,"Hussaini, Fatemeh",term(mtp)
+FM2055095,"Hussaini, Rahman",polish(mtp)
 FM20095834N,"Laureano, Carlos",
 FM2041194N,"Leonardo, Jennifer",
-FM2000172,"Liang, Meilian",
+FM2000172,"Liang, Meilian",prep(reg)
 FM2077924N,"Madera, Daysi",
-FM2055210,"Mahmood Mia, Shahid",
-FM2055097,"Molla, Morzina",
+FM2055210,"Mahmood Mia, Shahid",prep(reg)
+FM2055097,"Molla, Morzina",term(mtp)
 FM2000191,"Mondol, Tabassum",
-FM2000192,"Mora, Edwin",
+FM2000192,"Mora, Edwin",polish(reg)
 FM2066392N,"Munoz, Sergio",
-FM2055111,"Nafisa, Sabiya Jahan",
-FM2055112,"Nahin, Nusrat",
+FM2055111,"Nafisa, Sabiya Jahan",prep(mtp)
+FM2055112,"Nahin, Nusrat",test(flat)
 FM2012343N,"Nieves, Adarin",
 FM2000203,"Nordland, Christopher",
 FM2062384N,"Ortiz, Gloriann",
 FM2058730N,"Padilla, Edna",
 FM2078543N,"Pierre, Angeline",
 FM2055246,"Pohl Hernandez, Saul Alejandro",
-FM2016197N,"Ramos, Norberto",
+FM2016197N,"Ramos, Norberto",polish(reg)
 FM2096774N,"Reyes, Yovanny",
 FM2055237,"Rodriguez, Nicol",
-FM2038517N,"Rodriguez, Wanda",
+FM2038517N,"Rodriguez, Wanda",prep(reg)
 FM2033835N,"Rodriguez, Yahaira",
 FM2024873N,"Rodriguez, Yarida",
-FM20079755N,"Rojas, Lucy",
+FM20079755N,"Rojas, Lucy",prep(reg)
 FM2032605N,"Santana, Francisco",
-FM2000231,"Sarder, Roksana",
-FM2055109,"Sarkar, Aroti Rani",
+FM2000231,"Sarder, Roksana",term(reg)
+FM2055109,"Sarkar, Aroti Rani",prep(reg)
 FM2055248,"Sarker, Mohamaya",
 FM2008224N,"Seijo, Militza",
 FM2055190,"Shaji, Deepu",term(reg)
-FM2055064,"Shetu, Shanzida",
+FM2055064,"Shetu, Shanzida",term(mtp)
 FM2000240,"Snoeu, Eliyah",
-FM2008698N,"Tea, Ang",
+FM2008698N,"Tea, Ang",term(flat)
 FM2079961N,"Torres, Alex",
-FM2088422N,"Torres, Yohaskar",
+FM2088422N,"Torres, Yohaskar",scope(reg)
 FM2055094,"Uddin, Asma",
 FM2071039N,"Urena, Samuel",
 FM2078274N,"Ventura, Daniel",
 FM2055244,"Webb, Patricia Ann",
-FM2055133,"Ye, Song",
+FM2055133,"Ye, Song",test(reg)
+FM2055148,"Prok, Jordan",
+FM2016123N,"Rodriguez, Esmeralda",
+FM2030611N,"Urena, Nilson",cut
