@@ -73,8 +73,39 @@ jobs:
         run: |
           yes | buildozer android release
 
+      - name: Convert release bundle to universal APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          AAB="$(find bin -name '*-release.aab' -print -quit)"
+          if [ -z "$AAB" ]; then
+            echo "No release AAB found under bin/."
+            find bin -maxdepth 2 -type f -print
+            exit 1
+          fi
+
+          curl -L \
+            -o bundletool.jar \
+            https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
+
+          java -jar bundletool.jar build-apks \
+            --bundle "$AAB" \
+            --output scanner-work-tracker-release.apks \
+            --mode universal \
+            --ks signing/scanner-work-tracker-release.keystore \
+            --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --key-pass "pass:$ANDROID_KEY_PASSWORD"
+
+          unzip -p scanner-work-tracker-release.apks universal.apk > bin/Scanner_Work_Tracker_v0.2_release.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: scanner-work-tracker-release-apk
-          path: bin/*.apk
+          path: |
+            bin/*.apk
+            bin/*.aab
