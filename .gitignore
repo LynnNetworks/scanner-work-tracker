@@ -6,3 +6,6 @@ bin/
 ~$*.xlsx
 work_tracker.xlsx
 api/local.settings.json
+signing/
+*.keystore
+*.jks

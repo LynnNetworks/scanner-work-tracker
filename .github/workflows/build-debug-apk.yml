@@ -1,10 +1,10 @@
-name: Build Android Release APK
+name: Build Android Debug APK
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-release:
+  build-debug:
     runs-on: ubuntu-latest
 
     steps:
@@ -49,32 +49,12 @@ jobs:
             '${{ secrets.TABLET_ID }}' \
             '${{ secrets.READ_ACCESS_TOKEN || 'd4de2f6c8f2d4e3f9ac9c2e9b46f3a22' }}' > app_config.py
 
-      - name: Configure Android release signing
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - name: Build debug APK
         run: |
-          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
-            echo "Android release signing secrets are missing."
-            echo "Required secrets: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD."
-            exit 1
-          fi
-          mkdir -p signing
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > signing/scanner-work-tracker-release.keystore
-
-      - name: Build signed release APK
-        env:
-          P4A_RELEASE_KEYSTORE: ${{ github.workspace }}/signing/scanner-work-tracker-release.keystore
-          P4A_RELEASE_KEYSTORE_PASSWD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          P4A_RELEASE_KEYALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          P4A_RELEASE_KEYALIAS_PASSWD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          yes | buildozer android release
+          yes | buildozer android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: scanner-work-tracker-release-apk
+          name: scanner-work-tracker-debug-apk
           path: bin/*.apk
