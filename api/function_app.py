@@ -69,7 +69,19 @@ def load_operator_area_map():
     return {}
 
 
+def load_operator_roster_overrides():
+    roster_path = Path(__file__).with_name("operator_roster_overrides.json")
+    if roster_path.exists():
+        try:
+            return json.loads(roster_path.read_text(encoding="utf-8"))
+        except Exception:
+            logging.exception("Could not read bundled operator roster overrides")
+
+    return {}
+
+
 OPERATOR_AREA_MAP = load_operator_area_map()
+OPERATOR_ROSTER_OVERRIDES = load_operator_roster_overrides()
 
 
 @app.route(route="save-entry", methods=["POST"])
@@ -580,17 +592,33 @@ def get_live_operator_area(position_id):
 
 
 def list_live_operator_areas():
-    entities = get_storage_table().query_entities(f"PartitionKey eq '{OPERATOR_AREA_PARTITION}'")
-    rows = []
-    for row in entities:
-        rows.append(
-            {
-                "position_id": row.get("RowKey", ""),
+    rows_by_position = {
+        normalize_position_id(position_id): {
+            "position_id": normalize_position_id(position_id),
+            "payroll_name": str(payroll_name or "").strip(),
+            "area": str(OPERATOR_AREA_MAP.get(normalize_position_id(position_id), "")).strip(),
+            "updated_at": "bundled roster override",
+        }
+        for position_id, payroll_name in OPERATOR_ROSTER_OVERRIDES.items()
+        if normalize_position_id(position_id)
+    }
+
+    try:
+        entities = get_storage_table().query_entities(f"PartitionKey eq '{OPERATOR_AREA_PARTITION}'")
+        for row in entities:
+            position_id = normalize_position_id(row.get("RowKey", ""))
+            if not position_id:
+                continue
+            rows_by_position[position_id] = {
+                "position_id": position_id,
                 "payroll_name": row.get("PayrollName", ""),
                 "area": row.get("Area", ""),
                 "updated_at": row.get("UpdatedAt", ""),
             }
-        )
+    except Exception as error:
+        logging.warning("Could not read live operator areas; using bundled roster overrides: %s", error)
+
+    rows = list(rows_by_position.values())
     rows.sort(key=lambda item: (item["payroll_name"], item["position_id"]))
     return rows
 
