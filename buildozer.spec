@@ -5,7 +5,7 @@ package.domain = org.example
 source.dir = .
 source.include_exts = py,kv,xlsx,csv
 version = 0.2.1
-requirements = python3,kivy,certifi
+requirements = python3,kivy,certifi,charset-normalizer==3.4.9
 android.permissions = INTERNET
 orientation = portrait
 fullscreen = 0
