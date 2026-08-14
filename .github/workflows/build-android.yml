@@ -100,7 +100,7 @@ jobs:
             --ks-key-alias "$ANDROID_KEY_ALIAS" \
             --key-pass "pass:$ANDROID_KEY_PASSWORD"
 
-          unzip -p scanner-work-tracker-release.apks universal.apk > bin/Scanner_Work_Tracker_v0.2_release.apk
+          unzip -p scanner-work-tracker-release.apks universal.apk > bin/Scanner_Work_Tracker_v0.2.1_release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
