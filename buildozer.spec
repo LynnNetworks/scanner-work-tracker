@@ -9,7 +9,7 @@ requirements = python3,kivy,certifi
 android.permissions = INTERNET
 orientation = portrait
 fullscreen = 0
-p4a.commit = e82b5654af9f6a57630a33e346810f5060a1d38f
+p4a.commit = 58d21141f17c889bf8585f5665921d72028f8831
 
 [buildozer]
 log_level = 2
