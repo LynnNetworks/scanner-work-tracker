@@ -1,1 +1,2 @@
 charset-normalizer==3.4.9
+pip==26.1.2
