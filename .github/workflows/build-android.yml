@@ -29,7 +29,6 @@ jobs:
             libltdl-dev \
             libssl-dev \
             libtool \
-            openjdk-17-jdk \
             patch \
             pkg-config \
             unzip \
