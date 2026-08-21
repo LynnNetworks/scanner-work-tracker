@@ -27,11 +27,12 @@ When Microsoft Graph settings are not configured, entries are stored in Azure Ta
 
 - Either `AZURE_USE_MANAGED_IDENTITY=true`
 - Or `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`
-- `EXCEL_DRIVE_ID`
-- `EXCEL_ITEM_ID`
+- `EXCEL_FILE_URL` — SharePoint/OneDrive link to the canonical workbook (recommended)
 - `EXCEL_TABLE_NAME`
 
-The Excel workbook must be stored in OneDrive for Business or SharePoint and contain a table named `WorkTracker`.
+The Excel workbook must be stored in OneDrive for Business or SharePoint and contain a table named
+`WorkTracker`. `EXCEL_FILE_URL` takes priority over the legacy `EXCEL_DRIVE_ID` and
+`EXCEL_ITEM_ID` settings.
 The selected identity must have Microsoft Graph application permission to access the workbook.
 
 Recommended columns:
@@ -91,14 +92,9 @@ Blank target cells are treated as zero. Numeric target cells have the connector 
 
 The installed tablet app does not send operator area in its cloud payload, so the function resolves area by `Position ID`.
 
-Resolution order:
-
-1. Live operator-area rows in Azure Table Storage, partition `operator_area`.
-2. Bundled `operator_areas.json`.
-3. The app payload area, if any.
-4. `Unassigned`.
-
-This allows floor leads to edit the shared workbook's `Area Assignments` sheet without reinstalling the tablet app.
+The shared tracker workbook is the only operator and area source. Power Automate copies the
+complete `Area Assignments` table to the live directory used by the scanners. The tablet does not
+use a bundled roster or accept an area supplied by the tablet payload.
 
 ### Operator Area Sync Endpoints
 
@@ -120,7 +116,8 @@ Body:
 }
 ```
 
-Blank `area` values are allowed and intentionally override old bundled assignments as `Unassigned`.
+Each row requires `position_id` and `payroll_name`. Blank `area` values are allowed and intentionally
+set the position to `Unassigned`.
 
 Supported schedule area prefixes:
 
@@ -136,4 +133,6 @@ To inspect the live map:
 
 `GET /api/operator-areas?token=...`
 
-Legacy override: set `OPERATOR_AREA_MAP_JSON` to a JSON object like `{"FM2000118":"prep(reg)"}`. The live table takes precedence when a matching Position ID exists.
+To inspect one operator:
+
+`GET /api/operator-areas?position_id=FM2030611N&token=...`

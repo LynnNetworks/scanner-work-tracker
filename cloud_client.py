@@ -1,6 +1,7 @@
 import json
 import ssl
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import certifi
@@ -55,13 +56,13 @@ class CloudClient:
 
     def find_live_operator(self, position_id):
         if not self.enabled or not self.read_access_token:
-            return None
+            raise RuntimeError("Live tracker access is not configured on this tablet.")
 
         target_position_id = str(position_id or "").strip().upper()
         if not target_position_id:
             return None
 
-        url = self._operator_areas_url()
+        url = self._operator_areas_url(target_position_id)
         try:
             context = ssl.create_default_context(cafile=certifi.where())
             with urllib.request.urlopen(url, timeout=15, context=context) as response:
@@ -73,25 +74,26 @@ class CloudClient:
             raise RuntimeError(f"Could not reach cloud roster: {error.reason}") from error
 
         result = json.loads(payload or "{}")
-        for row in result.get("assignments", []):
-            if str(row.get("position_id", "")).strip().upper() == target_position_id:
-                return {
-                    "position_id": str(row.get("position_id", "")).strip(),
-                    "payroll_name": str(row.get("payroll_name", "")).strip(),
-                    "benefits_class": "",
-                    "reports_to_name": "",
-                    "position_status": "Active",
-                }
-        return None
+        row = result.get("assignment")
+        if not row:
+            return None
+        return {
+            "position_id": str(row.get("position_id", "")).strip(),
+            "payroll_name": str(row.get("payroll_name", "")).strip(),
+            "benefits_class": "",
+            "reports_to_name": "",
+            "position_status": "Active",
+        }
 
-    def _operator_areas_url(self):
+    def _operator_areas_url(self, position_id):
         if "/save-entry" in self.endpoint_url:
             url = self.endpoint_url.replace("/save-entry", "/operator-areas")
         else:
             url = self.endpoint_url.rstrip("/") + "/operator-areas"
 
         separator = "&" if "?" in url else "?"
-        url = f"{url}{separator}token={self.read_access_token}"
+        url = f"{url}{separator}position_id={urllib.parse.quote(position_id)}"
+        url = f"{url}&token={urllib.parse.quote(self.read_access_token)}"
 
         if self.function_key:
             separator = "&" if "?" in url else "?"

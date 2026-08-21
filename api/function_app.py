@@ -1,14 +1,15 @@
+import base64
 import json
 import logging
 import os
 import re
+import secrets
 import uuid
 from csv import writer
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from html import escape
 from io import StringIO
-from pathlib import Path
 from urllib.parse import quote
 
 import azure.functions as func
@@ -34,7 +35,7 @@ FLOW_SCHEDULE_QUEUE_ENABLED = os.environ.get("FLOW_SCHEDULE_QUEUE_ENABLED", "").
 }
 READ_ACCESS_TOKEN = os.environ.get(
     "READ_ACCESS_TOKEN",
-    "d4de2f6c8f2d4e3f9ac9c2e9b46f3a22",
+    "",
 )
 OPERATOR_AREA_PARTITION = "operator_area"
 
@@ -51,39 +52,6 @@ AREA_COLUMN_MAP = {
 }
 
 
-def load_operator_area_map():
-    configured = os.environ.get("OPERATOR_AREA_MAP_JSON", "").strip()
-    if configured:
-        try:
-            return json.loads(configured)
-        except json.JSONDecodeError:
-            logging.exception("Invalid OPERATOR_AREA_MAP_JSON setting")
-
-    map_path = Path(__file__).with_name("operator_areas.json")
-    if map_path.exists():
-        try:
-            return json.loads(map_path.read_text(encoding="utf-8"))
-        except Exception:
-            logging.exception("Could not read bundled operator area map")
-
-    return {}
-
-
-def load_operator_roster_overrides():
-    roster_path = Path(__file__).with_name("operator_roster_overrides.json")
-    if roster_path.exists():
-        try:
-            return json.loads(roster_path.read_text(encoding="utf-8"))
-        except Exception:
-            logging.exception("Could not read bundled operator roster overrides")
-
-    return {}
-
-
-OPERATOR_AREA_MAP = load_operator_area_map()
-OPERATOR_ROSTER_OVERRIDES = load_operator_roster_overrides()
-
-
 @app.route(route="save-entry", methods=["POST"])
 def save_entry(req: func.HttpRequest) -> func.HttpResponse:
     try:
@@ -93,7 +61,7 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
 
     position_id = str(payload.get("position_id", "")).strip()
     payroll_name = str(payload.get("payroll_name", "")).strip()
-    area = resolve_operator_area(position_id, payload.get("area"))
+    area = resolve_operator_area(position_id)
     batch_id = str(payload.get("batch_id", "")).strip()
     tablet_id = str(payload.get("tablet_id", "")).strip()
 
@@ -395,6 +363,10 @@ def operator_areas(req: func.HttpRequest) -> func.HttpResponse:
         return json_response({"error": "Unauthorized."}, 401)
 
     try:
+        position_id = normalize_position_id(req.params.get("position_id"))
+        if position_id:
+            assignment = get_live_operator_assignment(position_id)
+            return json_response({"assignment": assignment}, 200)
         rows = list_live_operator_areas()
     except Exception as error:
         logging.exception("Could not read live operator area map")
@@ -417,16 +389,19 @@ def operator_areas_sync(req: func.HttpRequest) -> func.HttpResponse:
         assignments = normalize_operator_area_payload(payload)
     except ValueError as error:
         return json_response({"error": str(error)}, 400)
+    if not assignments:
+        return json_response({"error": "At least one assignment is required."}, 400)
 
     invalid = [
         item
         for item in assignments
-        if item["area"] and schedule_column_for_area(item["area"]) is None
+        if not item["payroll_name"]
+        or (item["area"] and schedule_column_for_area(item["area"]) is None)
     ]
     if invalid:
         return json_response(
             {
-                "error": "Invalid area values.",
+                "error": "Invalid tracker assignments.",
                 "allowed_prefixes": sorted(AREA_COLUMN_MAP.keys()),
                 "invalid": invalid[:25],
             },
@@ -443,13 +418,11 @@ def operator_areas_sync(req: func.HttpRequest) -> func.HttpResponse:
 
 
 def graph_configured():
-    return graph_auth_configured() and all(
-        os.environ.get(name)
-        for name in [
-            "EXCEL_DRIVE_ID",
-            "EXCEL_ITEM_ID",
-        ]
+    direct_target_configured = bool(os.environ.get("EXCEL_FILE_URL", "").strip())
+    legacy_target_configured = all(
+        os.environ.get(name) for name in ["EXCEL_DRIVE_ID", "EXCEL_ITEM_ID"]
     )
+    return graph_auth_configured() and (direct_target_configured or legacy_target_configured)
 
 
 def schedule_configured():
@@ -496,7 +469,8 @@ def get_storage_table():
 
 
 def read_token_valid(req: func.HttpRequest):
-    return req.params.get("token") == READ_ACCESS_TOKEN
+    token = req.params.get("token", "")
+    return bool(READ_ACCESS_TOKEN) and secrets.compare_digest(token, READ_ACCESS_TOKEN)
 
 
 def update_schedule_from_scan(area, batch_id):
@@ -560,16 +534,12 @@ def schedule_column_for_area(area):
     return AREA_COLUMN_MAP.get(area_prefix)
 
 
-def resolve_operator_area(position_id, payload_area=None):
+def resolve_operator_area(position_id):
     normalized_position_id = normalize_position_id(position_id)
     found_live_area, live_area = get_live_operator_area(normalized_position_id)
     if found_live_area:
         return live_area or "Unassigned"
-
-    mapped_area = OPERATOR_AREA_MAP.get(normalized_position_id)
-    if mapped_area:
-        return mapped_area
-    return str(payload_area or "Unassigned").strip() or "Unassigned"
+    return "Unassigned"
 
 
 def normalize_position_id(position_id):
@@ -591,34 +561,40 @@ def get_live_operator_area(position_id):
         return False, ""
 
 
-def list_live_operator_areas():
-    rows_by_position = {
-        normalize_position_id(position_id): {
-            "position_id": normalize_position_id(position_id),
-            "payroll_name": str(payroll_name or "").strip(),
-            "area": str(OPERATOR_AREA_MAP.get(normalize_position_id(position_id), "")).strip(),
-            "updated_at": "bundled roster override",
-        }
-        for position_id, payroll_name in OPERATOR_ROSTER_OVERRIDES.items()
-        if normalize_position_id(position_id)
+def get_live_operator_assignment(position_id):
+    try:
+        entity = get_storage_table().get_entity(OPERATOR_AREA_PARTITION, position_id)
+    except Exception as error:
+        if getattr(error, "status_code", None) == 404:
+            return None
+        raise
+    return {
+        "position_id": position_id,
+        "payroll_name": str(entity.get("PayrollName", "")).strip(),
+        "area": str(entity.get("Area", "")).strip(),
+        "updated_at": entity.get("UpdatedAt", ""),
     }
 
+
+def list_live_operator_areas():
     try:
         entities = get_storage_table().query_entities(f"PartitionKey eq '{OPERATOR_AREA_PARTITION}'")
+        rows = []
         for row in entities:
             position_id = normalize_position_id(row.get("RowKey", ""))
-            if not position_id:
-                continue
-            rows_by_position[position_id] = {
-                "position_id": position_id,
-                "payroll_name": row.get("PayrollName", ""),
-                "area": row.get("Area", ""),
-                "updated_at": row.get("UpdatedAt", ""),
-            }
+            if position_id:
+                rows.append(
+                    {
+                        "position_id": position_id,
+                        "payroll_name": row.get("PayrollName", ""),
+                        "area": row.get("Area", ""),
+                        "updated_at": row.get("UpdatedAt", ""),
+                    }
+                )
     except Exception as error:
-        logging.warning("Could not read live operator areas; using bundled roster overrides: %s", error)
+        logging.warning("Could not read tracker operator areas: %s", error)
+        raise
 
-    rows = list(rows_by_position.values())
     rows.sort(key=lambda item: (item["payroll_name"], item["position_id"]))
     return rows
 
@@ -843,8 +819,7 @@ def quote_graph_path(value):
 
 def append_excel_row(values):
     token = get_graph_token()
-    drive_id = required_setting("EXCEL_DRIVE_ID")
-    item_id = required_setting("EXCEL_ITEM_ID")
+    drive_id, item_id = get_excel_target(token)
     url = (
         f"{GRAPH_ROOT}/drives/{drive_id}/items/{item_id}"
         f"/workbook/tables/{TABLE_NAME}/rows/add"
@@ -859,6 +834,23 @@ def append_excel_row(values):
         timeout=30,
     )
     response.raise_for_status()
+
+
+def get_excel_target(token):
+    workbook_url = os.environ.get("EXCEL_FILE_URL", "").strip()
+    if workbook_url:
+        encoded_url = base64.urlsafe_b64encode(workbook_url.encode("utf-8")).decode("ascii")
+        share_id = f"u!{encoded_url.rstrip('=')}"
+        response = requests.get(
+            f"{GRAPH_ROOT}/shares/{share_id}/driveItem",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        item = response.json()
+        return item["parentReference"]["driveId"], item["id"]
+
+    return required_setting("EXCEL_DRIVE_ID"), required_setting("EXCEL_ITEM_ID")
 
 
 def get_graph_token():
