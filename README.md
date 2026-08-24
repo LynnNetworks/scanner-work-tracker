@@ -72,7 +72,7 @@ Tablet app -> Azure Function -> Microsoft Graph -> Excel table in OneDrive/Share
    - `AZURE_TENANT_ID`
    - `AZURE_CLIENT_ID`
    - `AZURE_CLIENT_SECRET`
-   - `EXCEL_SITE_PATH` as `nsiindustries-my.sharepoint.com:/personal/egenova_thinklynn_com`
+   - `EXCEL_USER_PRINCIPAL` as `egenova@thinklynn.com`
    - `EXCEL_FILE_PATH` as `Scanner Work Tracker/Scanner_Work_Tracker.xlsx`
    - `EXCEL_TABLE_NAME`
    - `READ_ACCESS_TOKEN` (a long random secret, shared only with the app build and Power Automate)
@@ -89,10 +89,10 @@ TABLET_ID = "Tablet-01"
 READ_ACCESS_TOKEN = "<long-random-secret>"
 ```
 
-`EXCEL_SITE_PATH` and `EXCEL_FILE_PATH` take priority over `EXCEL_FILE_URL` and the legacy
-`EXCEL_DRIVE_ID` and `EXCEL_ITEM_ID` settings. This addresses the exact canonical workbook without
-depending on a browser sharing URL. Cloud access is required; the tablet does not carry a roster or
-write any workbook locally.
+`EXCEL_USER_PRINCIPAL` and `EXCEL_FILE_PATH` take priority over `EXCEL_SITE_PATH`,
+`EXCEL_FILE_URL`, and the legacy `EXCEL_DRIVE_ID` and `EXCEL_ITEM_ID` settings. This addresses the
+exact canonical workbook without depending on a browser sharing URL. Cloud access is required; the
+tablet does not carry a roster or write any workbook locally.
 
 ### Shared Area Assignment Sync
 

@@ -425,6 +425,9 @@ def operator_areas_sync(req: func.HttpRequest) -> func.HttpResponse:
 
 
 def graph_configured():
+    user_drive_target_configured = all(
+        os.environ.get(name) for name in ["EXCEL_USER_PRINCIPAL", "EXCEL_FILE_PATH"]
+    )
     path_target_configured = all(
         os.environ.get(name) for name in ["EXCEL_SITE_PATH", "EXCEL_FILE_PATH"]
     )
@@ -433,7 +436,10 @@ def graph_configured():
         os.environ.get(name) for name in ["EXCEL_DRIVE_ID", "EXCEL_ITEM_ID"]
     )
     return graph_auth_configured() and (
-        path_target_configured or direct_target_configured or legacy_target_configured
+        user_drive_target_configured
+        or path_target_configured
+        or direct_target_configured
+        or legacy_target_configured
     )
 
 
@@ -860,8 +866,20 @@ def append_excel_row(values):
 
 
 def get_excel_target(token):
-    site_path = os.environ.get("EXCEL_SITE_PATH", "").strip()
+    user_principal = os.environ.get("EXCEL_USER_PRINCIPAL", "").strip()
     file_path = os.environ.get("EXCEL_FILE_PATH", "").strip("/")
+    if user_principal and file_path:
+        item_response = requests.get(
+            f"{GRAPH_ROOT}/users/{quote(user_principal, safe='@')}/drive/root:"
+            f"/{quote(file_path, safe='/')}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        item_response.raise_for_status()
+        item = item_response.json()
+        return item["parentReference"]["driveId"], item["id"]
+
+    site_path = os.environ.get("EXCEL_SITE_PATH", "").strip()
     if site_path and file_path:
         site_response = requests.get(
             f"{GRAPH_ROOT}/sites/{quote(site_path, safe=':/')}",

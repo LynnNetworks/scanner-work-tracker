@@ -27,13 +27,13 @@ When Microsoft Graph settings are not configured, entries are stored in Azure Ta
 
 - Either `AZURE_USE_MANAGED_IDENTITY=true`
 - Or `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`
-- `EXCEL_SITE_PATH` and `EXCEL_FILE_PATH` — canonical OneDrive/SharePoint workbook location (recommended)
+- `EXCEL_USER_PRINCIPAL` and `EXCEL_FILE_PATH` — canonical OneDrive workbook location (recommended)
 - `EXCEL_FILE_URL` — browser sharing URL fallback
 - `EXCEL_TABLE_NAME`
 
 The Excel workbook must be stored in OneDrive for Business or SharePoint and contain a table named
-`WorkTracker`. `EXCEL_SITE_PATH` and `EXCEL_FILE_PATH` take priority over `EXCEL_FILE_URL` and
-the legacy `EXCEL_DRIVE_ID` and `EXCEL_ITEM_ID` settings.
+`WorkTracker`. `EXCEL_USER_PRINCIPAL` and `EXCEL_FILE_PATH` take priority over `EXCEL_SITE_PATH`,
+`EXCEL_FILE_URL`, and the legacy `EXCEL_DRIVE_ID` and `EXCEL_ITEM_ID` settings.
 The selected identity must have Microsoft Graph application permission to access the workbook.
 
 Recommended columns:

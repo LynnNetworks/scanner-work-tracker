@@ -11,6 +11,7 @@
     "EXCEL_ITEM_ID": "",
     "EXCEL_FILE_URL": "",
     "EXCEL_SITE_PATH": "nsiindustries-my.sharepoint.com:/personal/egenova_thinklynn_com",
+    "EXCEL_USER_PRINCIPAL": "egenova@thinklynn.com",
     "EXCEL_FILE_PATH": "Scanner Work Tracker/Scanner_Work_Tracker.xlsx",
     "EXCEL_TABLE_NAME": "WorkTracker",
     "READ_ACCESS_TOKEN": "set-a-long-random-secret",
