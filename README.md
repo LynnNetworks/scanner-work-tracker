@@ -64,21 +64,13 @@ Tablet app -> Azure Function -> Microsoft Graph -> Excel table in OneDrive/Share
    - `area`
    Keep Position ID and Payroll Name locked; give floor leads edit access only to the Area
    column and use Excel data validation for the allowed values.
-5. Create an Entra ID app registration for Microsoft Graph access.
-6. Create a client secret for that app registration.
-7. Grant the app permission to write to the workbook.
-8. Create an Azure Function App using Python 3.11.
-9. Add these Function App settings:
-   - `AZURE_TENANT_ID`
-   - `AZURE_CLIENT_ID`
-   - `AZURE_CLIENT_SECRET`
-   - `EXCEL_USER_PRINCIPAL` as `egenova@thinklynn.com`
-   - `EXCEL_FILE_PATH` as `Scanner Work Tracker/Scanner_Work_Tracker.xlsx`
-   - `EXCEL_TABLE_NAME`
+5. Create an Azure Function App using Python 3.11.
+6. Add these Function App settings:
+   - `FLOW_ENTRY_SYNC_ENABLED=true`
    - `READ_ACCESS_TOKEN` (a long random secret, shared only with the app build and Power Automate)
-10. Deploy `api/` to the Function App.
-11. Configure the area-assignment sync described below.
-12. Put the Function endpoint URL, key, and `READ_ACCESS_TOKEN` into `app_config.py`.
+7. Deploy `api/` to the Function App.
+8. Configure the entry-sync and area-assignment flows described below.
+9. Put the Function endpoint URL, key, and `READ_ACCESS_TOKEN` into `app_config.py`.
 
 `app_config.py`:
 
@@ -89,10 +81,22 @@ TABLET_ID = "Tablet-01"
 READ_ACCESS_TOKEN = "<long-random-secret>"
 ```
 
-`EXCEL_USER_PRINCIPAL` and `EXCEL_FILE_PATH` take priority over `EXCEL_SITE_PATH`,
-`EXCEL_FILE_URL`, and the legacy `EXCEL_DRIVE_ID` and `EXCEL_ITEM_ID` settings. This addresses the
-exact canonical workbook without depending on a browser sharing URL. Cloud access is required; the
-tablet does not carry a roster or write any workbook locally.
+Cloud access is required; the tablet does not carry a roster or write any workbook locally.
+
+### Power Automate Entry Sync
+
+Create a flow using the standard **RSS** trigger, **When a feed item is published**. Set the feed
+URL to:
+
+```text
+https://<function-app>.azurewebsites.net/api/entries-feed?token=<READ_ACCESS_TOKEN>
+```
+
+Add **Parse JSON** using the RSS item's Description field, then add an Excel Online (Business)
+**Add a row into a table** action for `Scanner_Work_Tracker.xlsx` > `WorkTracker`. Map the parsed
+`created_at`, `position_id`, `payroll_name`, `area`, `batch_id`, and `tablet_id` fields to their
+matching table columns. This flow uses the maker's existing Excel connection instead of Microsoft
+Graph application permissions.
 
 ### Shared Area Assignment Sync
 
@@ -102,5 +106,5 @@ trigger for the `Area Assignments` table. Add **List rows present in a table**, 
 Send the complete table as the `assignments` array. The sync validates the area values and replaces
 the live directory atomically, so every tablet sees the updated assignment on its next scan.
 
-The Function requires Microsoft Graph access to the canonical workbook. It does not silently
-redirect scans to a separate Azure Table Storage log.
+Set `FLOW_ENTRY_SYNC_ENABLED=true` to use Power Automate as the workbook writer. The Function does
+not silently choose this mode; it is an explicit setting.

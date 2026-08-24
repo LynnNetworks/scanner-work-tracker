@@ -1,7 +1,8 @@
 # Scanner Work Tracker API
 
-Azure Function endpoint for appending scan entries to a live Excel table through Microsoft Graph.
-When Microsoft Graph settings are not configured, entries are stored in Azure Table Storage and exposed as a CSV feed for Excel.
+Azure Function endpoint for recording scans. It can append directly to an Excel table through
+Microsoft Graph or explicitly queue entries in Azure Table Storage for Power Automate to write into
+Excel.
 
 ## Endpoint
 
@@ -22,6 +23,17 @@ When Microsoft Graph settings are not configured, entries are stored in Azure Ta
 
 - `AzureWebJobsStorage`
 - `STORAGE_TABLE_NAME`
+- `FLOW_ENTRY_SYNC_ENABLED=true`
+- `READ_ACCESS_TOKEN`
+
+When `FLOW_ENTRY_SYNC_ENABLED=true`, the Function writes new scans to Azure Table Storage and
+publishes them to this RSS feed:
+
+`GET /api/entries-feed?token=...`
+
+Use the standard Power Automate RSS trigger with that URL, then use the Excel Online (Business)
+**Add a row into a table** action to write the item to `WorkTracker`. The feed publishes only rows
+created after entry-sync mode is enabled, with a stable unique ID to prevent duplicate trigger runs.
 
 ### Microsoft Graph Excel Mode
 
@@ -41,6 +53,7 @@ Recommended columns:
 - Created At
 - Position ID
 - Payroll Name
+- Area
 - Batch ID
 - Tablet ID
 

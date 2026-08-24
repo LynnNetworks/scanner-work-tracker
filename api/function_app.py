@@ -33,6 +33,11 @@ FLOW_SCHEDULE_QUEUE_ENABLED = os.environ.get("FLOW_SCHEDULE_QUEUE_ENABLED", "").
     "true",
     "yes",
 }
+FLOW_ENTRY_SYNC_ENABLED = os.environ.get("FLOW_ENTRY_SYNC_ENABLED", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 READ_ACCESS_TOKEN = os.environ.get(
     "READ_ACCESS_TOKEN",
     "",
@@ -69,7 +74,7 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
         return json_response({"error": "position_id is required."}, 400)
     if not batch_id:
         return json_response({"error": "batch_id is required."}, 400)
-    if not graph_configured():
+    if not FLOW_ENTRY_SYNC_ENABLED and not graph_configured():
         return json_response(
             {
                 "error": (
@@ -84,7 +89,18 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
     values = [[created_at, position_id, payroll_name, area, batch_id, tablet_id]]
 
     try:
-        append_excel_row(values)
+        if FLOW_ENTRY_SYNC_ENABLED:
+            append_storage_row(
+                created_at,
+                position_id,
+                payroll_name,
+                area,
+                batch_id,
+                tablet_id,
+                entry_sync_pending=True,
+            )
+        else:
+            append_excel_row(values)
     except requests.HTTPError as error:
         logging.exception("Microsoft Graph request failed")
         response_text = error.response.text if error.response is not None else str(error)
@@ -174,6 +190,61 @@ def entries_html(req: func.HttpRequest) -> func.HttpResponse:
         "</tbody></table></body></html>"
     )
     return func.HttpResponse(html, status_code=200, mimetype="text/html")
+
+
+@app.route(route="entries-feed", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def entries_feed(req: func.HttpRequest) -> func.HttpResponse:
+    if not read_token_valid(req):
+        return json_response({"error": "Unauthorized."}, 401)
+
+    try:
+        entities = [
+            row
+            for row in get_storage_table().query_entities("PartitionKey eq 'entry'")
+            if row.get("ExcelSyncStatus") == "pending"
+        ]
+        entities.sort(key=lambda row: row.get("CreatedAt", ""), reverse=True)
+        items = []
+        for row in entities[:100]:
+            created_at = datetime.strptime(
+                row["CreatedAt"],
+                "%Y-%m-%d %H:%M:%S UTC",
+            ).replace(tzinfo=timezone.utc)
+            payload = json.dumps(
+                {
+                    "row_key": row["RowKey"],
+                    "created_at": row["CreatedAt"],
+                    "position_id": row.get("PositionId", ""),
+                    "payroll_name": row.get("PayrollName", ""),
+                    "area": row.get("Area", "Unassigned"),
+                    "batch_id": row.get("BatchId", ""),
+                    "tablet_id": row.get("TabletId", ""),
+                },
+                separators=(",", ":"),
+            )
+            items.append(
+                "<item>"
+                f"<title>{escape(str(row.get('PositionId', '')))} - "
+                f"{escape(str(row.get('BatchId', '')))}</title>"
+                f"<guid isPermaLink=\"false\">{escape(row['RowKey'])}</guid>"
+                f"<pubDate>{format_datetime(created_at)}</pubDate>"
+                f"<description>{escape(payload)}</description>"
+                "</item>"
+            )
+    except Exception as error:
+        logging.exception("Could not build entry sync feed")
+        return json_response({"error": "Could not build entry sync feed.", "detail": str(error)}, 500)
+
+    xml = (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<rss version=\"2.0\"><channel>"
+        "<title>Scanner Work Tracker Entries</title>"
+        "<link>https://scanner-work-tracker-egenova-bjg0faecehdre2d7.canadacentral-01.azurewebsites.net</link>"
+        "<description>New scanner entries awaiting workbook synchronization.</description>"
+        + "".join(items)
+        + "</channel></rss>"
+    )
+    return func.HttpResponse(xml, status_code=200, mimetype="application/rss+xml")
 
 
 @app.route(route="cleanup-test-entries", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
@@ -462,7 +533,15 @@ def graph_auth_configured():
     )
 
 
-def append_storage_row(created_at, position_id, payroll_name, area, batch_id, tablet_id):
+def append_storage_row(
+    created_at,
+    position_id,
+    payroll_name,
+    area,
+    batch_id,
+    tablet_id,
+    entry_sync_pending=False,
+):
     table = get_storage_table()
     schedule_status = "pending" if FLOW_SCHEDULE_QUEUE_ENABLED and is_schedule_candidate(area, batch_id) else "ignored"
     table.create_entity(
@@ -476,6 +555,7 @@ def append_storage_row(created_at, position_id, payroll_name, area, batch_id, ta
             "BatchId": batch_id,
             "TabletId": tablet_id,
             "ScheduleStatus": schedule_status,
+            "ExcelSyncStatus": "pending" if entry_sync_pending else "not_requested",
         }
     )
 
