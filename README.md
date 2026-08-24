@@ -102,12 +102,5 @@ trigger for the `Area Assignments` table. Add **List rows present in a table**, 
 Send the complete table as the `assignments` array. The sync validates the area values and replaces
 the live directory atomically, so every tablet sees the updated assignment on its next scan.
 
-### No-App-Registration Fallback
-
-If App registrations are blocked by the Microsoft tenant, the Azure Function stores entries in Azure Table Storage and exposes a CSV endpoint:
-
-```text
-https://<function-app>.azurewebsites.net/api/entries.csv
-```
-
-Excel can connect to that URL with **Data > From Web** and refresh the table when needed.
+The Function requires Microsoft Graph access to the canonical workbook. It does not silently
+redirect scans to a separate Azure Table Storage log.

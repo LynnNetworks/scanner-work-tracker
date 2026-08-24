@@ -69,15 +69,22 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
         return json_response({"error": "position_id is required."}, 400)
     if not batch_id:
         return json_response({"error": "batch_id is required."}, 400)
+    if not graph_configured():
+        return json_response(
+            {
+                "error": (
+                    "Direct workbook storage is not configured. Set EXCEL_SITE_PATH, "
+                    "EXCEL_FILE_PATH, EXCEL_TABLE_NAME, and Microsoft Graph authentication."
+                )
+            },
+            503,
+        )
 
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     values = [[created_at, position_id, payroll_name, area, batch_id, tablet_id]]
 
     try:
-        if graph_configured():
-            append_excel_row(values)
-        else:
-            append_storage_row(created_at, position_id, payroll_name, area, batch_id, tablet_id)
+        append_excel_row(values)
     except requests.HTTPError as error:
         logging.exception("Microsoft Graph request failed")
         response_text = error.response.text if error.response is not None else str(error)
