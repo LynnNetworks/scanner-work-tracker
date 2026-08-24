@@ -819,21 +819,32 @@ def quote_graph_path(value):
 
 def append_excel_row(values):
     token = get_graph_token()
-    drive_id, item_id = get_excel_target(token)
+    try:
+        drive_id, item_id = get_excel_target(token)
+    except requests.HTTPError as error:
+        raise RuntimeError(
+            f"Could not resolve the canonical workbook: {graph_error_detail(error)}"
+        ) from error
+
     url = (
         f"{GRAPH_ROOT}/drives/{drive_id}/items/{item_id}"
         f"/workbook/tables/{TABLE_NAME}/rows/add"
     )
-    response = requests.post(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
-        json={"values": values},
-        timeout=30,
-    )
-    response.raise_for_status()
+    try:
+        response = requests.post(
+            url,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json={"values": values},
+            timeout=30,
+        )
+        response.raise_for_status()
+    except requests.HTTPError as error:
+        raise RuntimeError(
+            f"Could not append to the {TABLE_NAME} table: {graph_error_detail(error)}"
+        ) from error
 
 
 def get_excel_target(token):
@@ -851,6 +862,12 @@ def get_excel_target(token):
         return item["parentReference"]["driveId"], item["id"]
 
     return required_setting("EXCEL_DRIVE_ID"), required_setting("EXCEL_ITEM_ID")
+
+
+def graph_error_detail(error):
+    if error.response is not None:
+        return error.response.text
+    return str(error)
 
 
 def get_graph_token():
