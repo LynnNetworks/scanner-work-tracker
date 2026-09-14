@@ -44,7 +44,7 @@ Function in `api/`. It never creates or writes a second workbook on a tablet.
 High-level flow:
 
 ```text
-Tablet app -> Azure Function -> Microsoft Graph -> Excel table in OneDrive/SharePoint
+Tablet app -> Azure Function -> Power Automate -> Excel tables in OneDrive/SharePoint
 ```
 
 ### Azure Setup Checklist
@@ -58,6 +58,7 @@ Tablet app -> Azure Function -> Microsoft Graph -> Excel table in OneDrive/Share
    - Area
    - Batch ID
    - Tablet ID
+   - Row Key
 4. Add a worksheet named `Area Assignments` with an Excel table containing:
    - `position_id`
    - `payroll_name`
@@ -66,7 +67,7 @@ Tablet app -> Azure Function -> Microsoft Graph -> Excel table in OneDrive/Share
    column and use Excel data validation for the allowed values.
 5. Create an Azure Function App using Python 3.11.
 6. Add these Function App settings:
-   - `FLOW_ENTRY_SYNC_ENABLED=true`
+   - `FLOW_PUSH_SYNC_ENABLED=true`
    - `READ_ACCESS_TOKEN` (a long random secret, shared only with the app build and Power Automate)
 7. Deploy `api/` to the Function App.
 8. Configure the entry-sync and area-assignment flows described below.
@@ -89,11 +90,12 @@ Create a Premium flow using **When an HTTP request is received**. Configure its 
 the Function App setting `FLOW_PUSH_SYNC_URL`, then set `FLOW_PUSH_SYNC_ENABLED=true`. The Function
 writes the scan to Azure Table Storage first and immediately POSTs the scan to that URL.
 
-In the flow, add the tracker row to `Scanner_Work_Tracker.xlsx` > `WorkTracker`, run the production
-schedule Office Script with `batch_id` and `area`, then finish with an HTTP **Response** action
-returning status `200`. Map `created_at`, `position_id`, `payroll_name`, `area`, `batch_id`, and
-`tablet_id` directly from the trigger body to the tracker table. The Function retries scans that
-do not receive a successful flow response every five minutes.
+In the flow, first check `WorkTracker` for the trigger's `row_key`; add a tracker row only when
+that key is absent. Then run the production schedule Office Script with `batch_id`, `area`, and
+`row_key`, and finish with an HTTP **Response** action returning status `200`. Map
+`created_at`, `position_id`, `payroll_name`, `area`, `batch_id`, `tablet_id`, and `row_key`
+directly from the trigger body to the tracker table. The Function retries scans that do not
+receive a successful flow response every five minutes.
 
 ### Shared Area Assignment Sync
 
@@ -102,6 +104,3 @@ trigger for the `Area Assignments` table. Add **List rows present in a table**, 
 `POST` to `https://<function-app>.azurewebsites.net/api/operator-areas-sync?token=<READ_ACCESS_TOKEN>&code=<function-key>`.
 Send the complete table as the `assignments` array. The sync validates the area values and replaces
 the live directory atomically, so every tablet sees the updated assignment on its next scan.
-
-Set `FLOW_ENTRY_SYNC_ENABLED=true` to use Power Automate as the workbook writer. The Function does
-not silently choose this mode; it is an explicit setting.
