@@ -23,6 +23,7 @@ FLOW_PUSH_SYNC_ENABLED = os.environ.get("FLOW_PUSH_SYNC_ENABLED", "").lower() in
 }
 FLOW_PUSH_SYNC_URL = os.environ.get("FLOW_PUSH_SYNC_URL", "").strip()
 FLOW_PUSH_SYNC_TIMEOUT_SECONDS = int(os.environ.get("FLOW_PUSH_SYNC_TIMEOUT_SECONDS", "90"))
+FLOW_PUSH_RETRY_MINUTES = int(os.environ.get("FLOW_PUSH_RETRY_MINUTES", "5"))
 READ_ACCESS_TOKEN = os.environ.get(
     "READ_ACCESS_TOKEN",
     "",
@@ -171,6 +172,33 @@ def entry_dispatch(req: func.HttpRequest) -> func.HttpResponse:
     return json_response({"ok": True, "dispatched": dispatched}, 200)
 
 
+@app.route(route="entry-ack", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def entry_ack(req: func.HttpRequest) -> func.HttpResponse:
+    if not read_token_valid(req):
+        return json_response({"error": "Unauthorized."}, 401)
+
+    try:
+        payload = req.get_json()
+    except ValueError:
+        return json_response({"error": "Invalid JSON body."}, 400)
+
+    row_key = str(payload.get("row_key", "")).strip()
+    if not row_key:
+        return json_response({"error": "row_key is required."}, 400)
+
+    try:
+        table = get_storage_table()
+        entry = table.get_entity("entry", row_key)
+        entry["FlowSyncStatus"] = "completed"
+        entry["FlowSyncCompletedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        table.update_entity(entry)
+    except Exception as error:
+        logging.exception("Could not acknowledge flow entry %s", row_key)
+        return json_response({"error": "Could not acknowledge entry.", "detail": str(error)}, 500)
+
+    return json_response({"ok": True, "row_key": row_key}, 200)
+
+
 @app.schedule(schedule="0 */5 * * * *", arg_name="timer", use_monitor=True)
 def retry_pending_flow_entries(timer: func.TimerRequest) -> None:
     if not FLOW_PUSH_SYNC_ENABLED:
@@ -289,19 +317,34 @@ def append_storage_row(
 
 def dispatch_pending_entries(limit=20):
     table = get_storage_table()
-    pending = list(
-        table.query_entities(
-            "PartitionKey eq 'entry' and FlowSyncStatus eq 'pending'",
-            results_per_page=limit,
+    now = datetime.now(timezone.utc)
+    pending = [
+        entry
+        for entry in table.query_entities("PartitionKey eq 'entry'")
+        if entry.get("FlowSyncStatus") == "pending"
+        or (
+            entry.get("FlowSyncStatus") == "dispatched"
+            and dispatch_retry_due(entry.get("FlowSyncDispatchedAt", ""), now)
         )
-    )[:limit]
+    ]
     pending.sort(key=lambda row: row.get("CreatedAt", ""))
     dispatched = 0
-    for entry in pending:
+    for entry in pending[:limit]:
         result = dispatch_entry_to_flow(entry["RowKey"], entry=entry)
-        if result["status"] == "completed":
+        if result["status"] == "dispatched":
             dispatched += 1
     return dispatched
+
+
+def dispatch_retry_due(dispatched_at, now):
+    try:
+        previous = datetime.strptime(
+            str(dispatched_at),
+            "%Y-%m-%d %H:%M:%S UTC",
+        ).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return True
+    return (now - previous).total_seconds() >= FLOW_PUSH_RETRY_MINUTES * 60
 
 
 def dispatch_entry_to_flow(row_key, entry=None):
@@ -333,10 +376,10 @@ def dispatch_entry_to_flow(row_key, entry=None):
         logging.warning("Power Automate push failed for entry %s: %s", row_key, error)
         return {"status": "pending_retry", "row_key": row_key, "detail": str(error)}
 
-    entry["FlowSyncStatus"] = "completed"
-    entry["FlowSyncCompletedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    entry["FlowSyncStatus"] = "dispatched"
+    entry["FlowSyncDispatchedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     get_storage_table().update_entity(entry)
-    return {"status": "completed", "row_key": row_key}
+    return {"status": "dispatched", "row_key": row_key}
 
 
 def get_storage_table():

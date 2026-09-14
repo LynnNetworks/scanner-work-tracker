@@ -91,11 +91,11 @@ the Function App setting `FLOW_PUSH_SYNC_URL`, then set `FLOW_PUSH_SYNC_ENABLED=
 writes the scan to Azure Table Storage first and immediately POSTs the scan to that URL.
 
 In the flow, first check `WorkTracker` for the trigger's `row_key`; add a tracker row only when
-that key is absent. Then run the production schedule Office Script with `batch_id`, `area`, and
-`row_key`, and finish with an HTTP **Response** action returning status `200`. Map
+that key is absent. Then run the production schedule Office Script with `batch_id` and `area`.
+Finally, use an HTTP `POST` action to acknowledge the completed `row_key` to the Function. Map
 `created_at`, `position_id`, `payroll_name`, `area`, `batch_id`, `tablet_id`, and `row_key`
-directly from the trigger body to the tracker table. The Function retries scans that do not
-receive a successful flow response every five minutes.
+directly from the trigger body to the tracker table. The Function retries scans that are not
+acknowledged within five minutes.
 
 ### Shared Area Assignment Sync
 

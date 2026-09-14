@@ -28,8 +28,8 @@ it immediately to Power Automate for workbook updates.
 
 When `FLOW_PUSH_SYNC_ENABLED=true`, the Function first writes every scan to Azure Table Storage,
 then immediately POSTs it to the Power Automate HTTP trigger. The Function marks an entry complete
-only after the flow returns a successful HTTP response. Any entry that is not confirmed is retried
-every five minutes.
+only when Power Automate posts an explicit acknowledgment after the workbook actions finish. Any
+entry that is not acknowledged is retried every five minutes.
 
 The trigger receives:
 
@@ -46,8 +46,9 @@ The trigger receives:
 ```
 
 The flow should use `row_key` to add a tracker row only once, run the production-schedule Office
-Script with `batch_id`, `area`, and `row_key`, and finish with an HTTP **Response** action returning
-status code `200`. To manually retry pending items, call `POST /api/entry-dispatch?token=...`.
+Script with `batch_id` and `area`, then use an HTTP `POST` action to
+`/api/entry-ack?token=...` with body `{"row_key":"<trigger row_key>"}`. To manually retry pending
+items, call `POST /api/entry-dispatch?token=...`.
 
 The installed tablet app does not send operator area in its cloud payload, so the function resolves area by `Position ID`.
 

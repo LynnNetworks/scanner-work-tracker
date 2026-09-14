@@ -6,6 +6,7 @@
     "READ_ACCESS_TOKEN": "set-a-long-random-secret",
     "FLOW_PUSH_SYNC_ENABLED": "false",
     "FLOW_PUSH_SYNC_URL": "",
-    "FLOW_PUSH_SYNC_TIMEOUT_SECONDS": "90"
+    "FLOW_PUSH_SYNC_TIMEOUT_SECONDS": "90",
+    "FLOW_PUSH_RETRY_MINUTES": "5"
   }
 }
