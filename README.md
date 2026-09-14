@@ -105,3 +105,10 @@ trigger for the `Area Assignments` table. Add **List rows present in a table**, 
 `POST` to `https://<function-app>.azurewebsites.net/api/operator-areas-sync?token=<READ_ACCESS_TOKEN>&code=<function-key>`.
 Send the complete table as the `assignments` array. The sync validates the area values and replaces
 the live directory atomically, so every tablet sees the updated assignment on its next scan.
+
+### Daily Area Output
+
+The Office Script at `office-scripts/daily-area-output.ts` creates a `Daily Output` worksheet from
+the tracker table. It groups each exact production area by operator and sums barcode characters
+10-12, the same quantity used for production schedule updates. See `office-scripts/README.md` for
+the workbook script and scheduled Power Automate refresh setup.
