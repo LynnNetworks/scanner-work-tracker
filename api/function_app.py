@@ -38,6 +38,13 @@ FLOW_ENTRY_SYNC_ENABLED = os.environ.get("FLOW_ENTRY_SYNC_ENABLED", "").lower() 
     "true",
     "yes",
 }
+FLOW_PUSH_SYNC_ENABLED = os.environ.get("FLOW_PUSH_SYNC_ENABLED", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+FLOW_PUSH_SYNC_URL = os.environ.get("FLOW_PUSH_SYNC_URL", "").strip()
+FLOW_PUSH_SYNC_TIMEOUT_SECONDS = int(os.environ.get("FLOW_PUSH_SYNC_TIMEOUT_SECONDS", "90"))
 READ_ACCESS_TOKEN = os.environ.get(
     "READ_ACCESS_TOKEN",
     "",
@@ -74,7 +81,7 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
         return json_response({"error": "position_id is required."}, 400)
     if not batch_id:
         return json_response({"error": "batch_id is required."}, 400)
-    if not FLOW_ENTRY_SYNC_ENABLED and not graph_configured():
+    if not (FLOW_ENTRY_SYNC_ENABLED or FLOW_PUSH_SYNC_ENABLED) and not graph_configured():
         return json_response(
             {
                 "error": (
@@ -87,18 +94,22 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
 
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     values = [[created_at, position_id, payroll_name, area, batch_id, tablet_id]]
+    flow_dispatch = {"status": "not_requested"}
 
     try:
-        if FLOW_ENTRY_SYNC_ENABLED:
-            append_storage_row(
+        if FLOW_ENTRY_SYNC_ENABLED or FLOW_PUSH_SYNC_ENABLED:
+            row_key = append_storage_row(
                 created_at,
                 position_id,
                 payroll_name,
                 area,
                 batch_id,
                 tablet_id,
-                entry_sync_pending=True,
+                entry_sync_pending=FLOW_ENTRY_SYNC_ENABLED,
+                flow_sync_pending=FLOW_PUSH_SYNC_ENABLED,
             )
+            if FLOW_PUSH_SYNC_ENABLED:
+                flow_dispatch = dispatch_entry_to_flow(row_key)
         else:
             append_excel_row(values)
     except requests.HTTPError as error:
@@ -109,12 +120,22 @@ def save_entry(req: func.HttpRequest) -> func.HttpResponse:
         logging.exception("Unexpected save-entry failure")
         return json_response({"error": "Save failed.", "detail": str(error)}, 500)
 
-    if FLOW_SCHEDULE_QUEUE_ENABLED:
+    if FLOW_PUSH_SYNC_ENABLED:
+        schedule_update = {"status": "submitted_to_flow"}
+    elif FLOW_SCHEDULE_QUEUE_ENABLED:
         schedule_update = queue_status_for_scan(area, batch_id)
     else:
         schedule_update = update_schedule_from_scan(area, batch_id)
 
-    return json_response({"ok": True, "created_at": created_at, "schedule_update": schedule_update}, 200)
+    return json_response(
+        {
+            "ok": True,
+            "created_at": created_at,
+            "schedule_update": schedule_update,
+            "flow_dispatch": flow_dispatch,
+        },
+        200,
+    )
 
 
 @app.route(route="entries.csv", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
@@ -245,6 +266,34 @@ def entries_feed(req: func.HttpRequest) -> func.HttpResponse:
         + "</channel></rss>"
     )
     return func.HttpResponse(xml, status_code=200, mimetype="application/rss+xml")
+
+
+@app.route(route="entry-dispatch", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def entry_dispatch(req: func.HttpRequest) -> func.HttpResponse:
+    if not read_token_valid(req):
+        return json_response({"error": "Unauthorized."}, 401)
+    if not FLOW_PUSH_SYNC_ENABLED:
+        return json_response({"error": "Push flow synchronization is not enabled."}, 409)
+
+    try:
+        dispatched = dispatch_pending_entries()
+    except Exception as error:
+        logging.exception("Could not dispatch pending flow entries")
+        return json_response({"error": "Could not dispatch pending entries.", "detail": str(error)}, 500)
+
+    return json_response({"ok": True, "dispatched": dispatched}, 200)
+
+
+@app.schedule(schedule="0 */5 * * * *", arg_name="timer", use_monitor=True)
+def retry_pending_flow_entries(timer: func.TimerRequest) -> None:
+    if not FLOW_PUSH_SYNC_ENABLED:
+        return
+    try:
+        dispatched = dispatch_pending_entries()
+        if dispatched:
+            logging.info("Retried %s pending flow entries", dispatched)
+    except Exception:
+        logging.exception("Could not retry pending flow entries")
 
 
 @app.route(route="cleanup-test-entries", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
@@ -541,13 +590,15 @@ def append_storage_row(
     batch_id,
     tablet_id,
     entry_sync_pending=False,
+    flow_sync_pending=False,
 ):
     table = get_storage_table()
+    row_key = f"{created_at}-{uuid.uuid4()}"
     schedule_status = "pending" if FLOW_SCHEDULE_QUEUE_ENABLED and is_schedule_candidate(area, batch_id) else "ignored"
     table.create_entity(
         {
             "PartitionKey": "entry",
-            "RowKey": f"{created_at}-{uuid.uuid4()}",
+            "RowKey": row_key,
             "CreatedAt": created_at,
             "PositionId": position_id,
             "PayrollName": payroll_name,
@@ -556,8 +607,62 @@ def append_storage_row(
             "TabletId": tablet_id,
             "ScheduleStatus": schedule_status,
             "ExcelSyncStatus": "pending" if entry_sync_pending else "not_requested",
+            "FlowSyncStatus": "pending" if flow_sync_pending else "not_requested",
         }
     )
+    return row_key
+
+
+def dispatch_pending_entries(limit=20):
+    table = get_storage_table()
+    pending = list(
+        table.query_entities(
+            "PartitionKey eq 'entry' and FlowSyncStatus eq 'pending'",
+            results_per_page=limit,
+        )
+    )[:limit]
+    pending.sort(key=lambda row: row.get("CreatedAt", ""))
+    dispatched = 0
+    for entry in pending:
+        result = dispatch_entry_to_flow(entry["RowKey"], entry=entry)
+        if result["status"] == "completed":
+            dispatched += 1
+    return dispatched
+
+
+def dispatch_entry_to_flow(row_key, entry=None):
+    if not FLOW_PUSH_SYNC_URL:
+        raise RuntimeError("Missing app setting: FLOW_PUSH_SYNC_URL")
+
+    if entry is None:
+        entry = get_storage_table().get_entity("entry", row_key)
+    if entry.get("FlowSyncStatus") == "completed":
+        return {"status": "already_completed", "row_key": row_key}
+
+    payload = {
+        "row_key": row_key,
+        "created_at": entry.get("CreatedAt", ""),
+        "position_id": entry.get("PositionId", ""),
+        "payroll_name": entry.get("PayrollName", ""),
+        "area": entry.get("Area", "Unassigned"),
+        "batch_id": entry.get("BatchId", ""),
+        "tablet_id": entry.get("TabletId", ""),
+    }
+    try:
+        response = requests.post(
+            FLOW_PUSH_SYNC_URL,
+            json=payload,
+            timeout=FLOW_PUSH_SYNC_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+    except requests.RequestException as error:
+        logging.warning("Power Automate push failed for entry %s: %s", row_key, error)
+        return {"status": "pending_retry", "row_key": row_key, "detail": str(error)}
+
+    entry["FlowSyncStatus"] = "completed"
+    entry["FlowSyncCompletedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    get_storage_table().update_entity(entry)
+    return {"status": "completed", "row_key": row_key}
 
 
 def get_storage_table():
@@ -610,18 +715,11 @@ def is_schedule_candidate(area, batch_id):
 
 def parse_barcode(batch_id):
     digits = re.sub(r"\D", "", str(batch_id or ""))
-    if len(digits) == 13:
-        return {
-            "job": digits[:6],
-            "line": digits[6:8],
-            "conn_qty": int(digits[8:11]),
-            "batch": digits[11:13],
-        }
     if len(digits) == 14:
         return {
             "job": digits[:6],
-            "line": digits[6:9],
-            "conn_qty": int(digits[9:12]),
+            "conn_qty": int(digits[6:9]),
+            "line": digits[9:12],
             "batch": digits[12:14],
         }
     return None

@@ -83,20 +83,17 @@ READ_ACCESS_TOKEN = "<long-random-secret>"
 
 Cloud access is required; the tablet does not carry a roster or write any workbook locally.
 
-### Power Automate Entry Sync
+### Power Automate Immediate Entry Sync
 
-Create a flow using the standard **RSS** trigger, **When a feed item is published**. Set the feed
-URL to:
+Create a Premium flow using **When an HTTP request is received**. Configure its generated URL as
+the Function App setting `FLOW_PUSH_SYNC_URL`, then set `FLOW_PUSH_SYNC_ENABLED=true`. The Function
+writes the scan to Azure Table Storage first and immediately POSTs the scan to that URL.
 
-```text
-https://<function-app>.azurewebsites.net/api/entries-feed?token=<READ_ACCESS_TOKEN>
-```
-
-Add **Parse JSON** using the RSS item's Description field, then add an Excel Online (Business)
-**Add a row into a table** action for `Scanner_Work_Tracker.xlsx` > `WorkTracker`. Map the parsed
-`created_at`, `position_id`, `payroll_name`, `area`, `batch_id`, and `tablet_id` fields to their
-matching table columns. This flow uses the maker's existing Excel connection instead of Microsoft
-Graph application permissions.
+In the flow, add the tracker row to `Scanner_Work_Tracker.xlsx` > `WorkTracker`, run the production
+schedule Office Script with `batch_id` and `area`, then finish with an HTTP **Response** action
+returning status `200`. Map `created_at`, `position_id`, `payroll_name`, `area`, `batch_id`, and
+`tablet_id` directly from the trigger body to the tracker table. The Function retries scans that
+do not receive a successful flow response every five minutes.
 
 ### Shared Area Assignment Sync
 
