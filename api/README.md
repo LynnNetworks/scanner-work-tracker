@@ -31,6 +31,9 @@ then immediately POSTs it to the Power Automate HTTP trigger. The Function marks
 only when Power Automate posts an explicit acknowledgment after the workbook actions finish. Any
 entry that is not acknowledged is retried every five minutes.
 
+Set `FLOW_PUSH_RETRY_AFTER` to the current UTC timestamp at cutover, formatted as
+`YYYY-MM-DD HH:MM:SS UTC`. This prevents pre-cutover queue records from being replayed.
+
 The trigger receives:
 
 ```json

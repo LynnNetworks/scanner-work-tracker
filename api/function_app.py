@@ -24,6 +24,7 @@ FLOW_PUSH_SYNC_ENABLED = os.environ.get("FLOW_PUSH_SYNC_ENABLED", "").lower() in
 FLOW_PUSH_SYNC_URL = os.environ.get("FLOW_PUSH_SYNC_URL", "").strip()
 FLOW_PUSH_SYNC_TIMEOUT_SECONDS = int(os.environ.get("FLOW_PUSH_SYNC_TIMEOUT_SECONDS", "90"))
 FLOW_PUSH_RETRY_MINUTES = int(os.environ.get("FLOW_PUSH_RETRY_MINUTES", "5"))
+FLOW_PUSH_RETRY_AFTER = os.environ.get("FLOW_PUSH_RETRY_AFTER", "").strip()
 READ_ACCESS_TOKEN = os.environ.get(
     "READ_ACCESS_TOKEN",
     "",
@@ -321,19 +322,40 @@ def dispatch_pending_entries(limit=20):
     pending = [
         entry
         for entry in table.query_entities("PartitionKey eq 'entry'")
-        if entry.get("FlowSyncStatus") == "pending"
-        or (
-            entry.get("FlowSyncStatus") == "dispatched"
-            and dispatch_retry_due(entry.get("FlowSyncDispatchedAt", ""), now)
+        if entry_created_after_cutover(entry)
+        and (
+            entry.get("FlowSyncStatus") == "pending"
+            or (
+                entry.get("FlowSyncStatus") == "dispatched"
+                and dispatch_retry_due(entry.get("FlowSyncDispatchedAt", ""), now)
+            )
         )
     ]
     pending.sort(key=lambda row: row.get("CreatedAt", ""))
     dispatched = 0
-    for entry in pending[:limit]:
+    for entry in pending[:1]:
         result = dispatch_entry_to_flow(entry["RowKey"], entry=entry)
         if result["status"] == "dispatched":
             dispatched += 1
     return dispatched
+
+
+def entry_created_after_cutover(entry):
+    if not FLOW_PUSH_RETRY_AFTER:
+        return False
+    try:
+        created_at = datetime.strptime(
+            str(entry.get("CreatedAt", "")),
+            "%Y-%m-%d %H:%M:%S UTC",
+        ).replace(tzinfo=timezone.utc)
+        cutover = datetime.strptime(
+            FLOW_PUSH_RETRY_AFTER,
+            "%Y-%m-%d %H:%M:%S UTC",
+        ).replace(tzinfo=timezone.utc)
+    except ValueError:
+        logging.error("FLOW_PUSH_RETRY_AFTER must use YYYY-MM-DD HH:MM:SS UTC.")
+        return False
+    return created_at >= cutover
 
 
 def dispatch_retry_due(dispatched_at, now):

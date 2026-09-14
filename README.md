@@ -95,7 +95,8 @@ that key is absent. Then run the production schedule Office Script with `batch_i
 Finally, use an HTTP `POST` action to acknowledge the completed `row_key` to the Function. Map
 `created_at`, `position_id`, `payroll_name`, `area`, `batch_id`, `tablet_id`, and `row_key`
 directly from the trigger body to the tracker table. The Function retries scans that are not
-acknowledged within five minutes.
+acknowledged within five minutes. Set `FLOW_PUSH_RETRY_AFTER` on the Function App to the UTC
+cutover timestamp so earlier queue entries are never replayed.
 
 ### Shared Area Assignment Sync
 
