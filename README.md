@@ -60,10 +60,8 @@ The generated `work_tracker.xlsx` has these columns:
 
 ## Next Feature Ideas
 
-- Add barcode scanner keyboard-wedge support polish.
-- Add a button to export/share the Excel workbook from Android.
 - Add batch lookup validation.
-- Sync entries to a shared network location or cloud folder.
+- Sync entries to a shared network location or cloud folder. ### this feature has been added ###
 
 ## Live Excel Through Azure
 
